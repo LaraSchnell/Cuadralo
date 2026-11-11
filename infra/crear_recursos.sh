@@ -2,6 +2,7 @@
 # Cuádralo · crea todos los recursos de Azure del MVP en región UE.
 #
 # Cómo usarlo (sin instalar nada):
+#   Región y plan de base de datos: UBICACION=spaincentral SQL_PLAN=basic bash crear_recursos.sh (valores por defecto)
 #   1. Entra en portal.azure.com y abre Cloud Shell (icono >_ arriba). Elige "Bash".
 #   2. Sube este archivo con el botón "Cargar o descargar archivos" o pégalo en un archivo nuevo.
 #   3. Ejecuta:  bash crear_recursos.sh
@@ -11,7 +12,8 @@
 set -euo pipefail
 trap 'echo; echo "ERROR: el script se ha parado en la línea $LINENO. Copia el mensaje de arriba y pásaselo a Claude."' ERR
 
-UBICACION="${UBICACION:-westeurope}"          # región UE (Países Bajos)
+UBICACION="${UBICACION:-spaincentral}"        # región UE (Madrid)
+SQL_PLAN="${SQL_PLAN:-basic}"                 # basic: ~5 $/mes, siempre encendida | gratis: oferta gratuita (no disponible en todas las regiones)
 SUFIJO="${SUFIJO:-$(openssl rand -hex 3 | cut -c1-5)}"
 RG="cuadralo-rg"
 SQL_SERVER="cuadralo-sql-$SUFIJO"
@@ -38,13 +40,18 @@ done
 echo "== 1/7 Grupo de recursos $RG en $UBICACION"
 az group create -n "$RG" -l "$UBICACION" -o none
 
-echo "== 2/7 Azure SQL con la oferta gratuita (se pausa al llegar al límite gratuito, no cobra)"
+echo "== 2/7 Azure SQL (plan: $SQL_PLAN)"
 az sql server create -g "$RG" -n "$SQL_SERVER" -l "$UBICACION" -u "$SQL_ADMIN" -p "$SQL_PASS" --minimal-tls-version 1.2 -o none
 az sql server firewall-rule create -g "$RG" -s "$SQL_SERVER" -n PermitirServiciosAzure \
   --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0 -o none
-az sql db create -g "$RG" -s "$SQL_SERVER" -n "$SQL_DB" \
-  --edition GeneralPurpose --compute-model Serverless --family Gen5 --capacity 2 \
-  --use-free-limit --free-limit-exhaustion-behavior AutoPause --backup-storage-redundancy Local -o none
+if [ "$SQL_PLAN" = "gratis" ]; then
+  az sql db create -g "$RG" -s "$SQL_SERVER" -n "$SQL_DB" \
+    --edition GeneralPurpose --compute-model Serverless --family Gen5 --capacity 2 \
+    --use-free-limit --free-limit-exhaustion-behavior AutoPause --backup-storage-redundancy Local -o none
+else
+  az sql db create -g "$RG" -s "$SQL_SERVER" -n "$SQL_DB" \
+    --edition Basic --capacity 5 --max-size 2GB --backup-storage-redundancy Local -o none
+fi
 
 echo "== 3/7 Almacenamiento privado para los Excels subidos"
 az storage account create -g "$RG" -n "$STORAGE" -l "$UBICACION" --sku Standard_LRS --kind StorageV2 \
