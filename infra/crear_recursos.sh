@@ -41,7 +41,18 @@ echo "== 1/7 Grupo de recursos $RG en $UBICACION"
 az group create -n "$RG" -l "$UBICACION" -o none
 
 echo "== 2/7 Azure SQL (plan: $SQL_PLAN)"
-az sql server create -g "$RG" -n "$SQL_SERVER" -l "$UBICACION" -u "$SQL_ADMIN" -p "$SQL_PASS" --minimal-tls-version 1.2 -o none
+if ! az sql server show -g "$RG" -n "$SQL_SERVER" -o none 2>/dev/null; then
+  az sql server create -g "$RG" -n "$SQL_SERVER" -l "$UBICACION" -u "$SQL_ADMIN" -p "$SQL_PASS" --minimal-tls-version 1.2 -o none
+fi
+# Azure a veces tarda en "ver" el servidor recién creado: esperamos hasta 5 minutos.
+for i in $(seq 1 30); do
+  az sql server show -g "$RG" -n "$SQL_SERVER" -o none 2>/dev/null && break
+  echo "   esperando a que el servidor de base de datos esté listo ($i/30)…"; sleep 10
+done
+if ! az sql server show -g "$RG" -n "$SQL_SERVER" -o none 2>/dev/null; then
+  echo "El servidor $SQL_SERVER no aparece. Servidores que sí existen:"; az sql server list -o table || true
+  false
+fi
 az sql server firewall-rule create -g "$RG" -s "$SQL_SERVER" -n PermitirServiciosAzure \
   --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0 -o none
 if [ "$SQL_PLAN" = "gratis" ]; then
