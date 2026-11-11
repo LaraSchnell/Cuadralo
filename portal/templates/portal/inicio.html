@@ -1,33 +1,232 @@
-{% extends 'portal/base.html' %}{% load cifras %}
+{% extends 'portal/base.html' %}
 {% block titulo %}Informe{% endblock %}
-{% block contenido %}
-<h1>{{ empresa.nombre }}</h1>
-{% if filas %}
-<p class="subtitulo">Resumen de {{ mes_texto }}. Cifras calculadas a partir del informe del operador y de Business Central.</p>
-<form class="selector" method="get">
-  <label for="mes" style="margin:0">Mes</label>
-  <select id="mes" name="mes" onchange="this.form.submit()">
+
+{% block barra %}{% if informe %}
+<form class="filtros" method="get" id="filtros">
+  {% if opciones_hotel|length > 1 %}
+  <label for="f-hotel">Hotel</label>
+  <select id="f-hotel" name="hotel" onchange="this.form.submit()">
+    {% for valor, texto in opciones_hotel %}<option value="{{ valor }}" {% if valor == seleccion %}selected{% endif %}>{{ texto }}</option>{% endfor %}
+  </select>
+  {% else %}<input type="hidden" name="hotel" value="{{ seleccion }}"><b>{{ informe.titulo }}</b>{% endif %}
+  <label for="f-mes">Mes</label>
+  <select id="f-mes" name="mes" onchange="this.form.submit()">
     {% for valor, texto in meses %}<option value="{{ valor }}" {% if texto == mes_texto %}selected{% endif %}>{{ texto }}</option>{% endfor %}
   </select>
+  <input type="hidden" name="periodo" id="f-periodo" value="{{ modo }}">
+  <input type="hidden" name="p" id="f-p" value="{{ pagina }}">
+  <span class="conmutador" role="group" aria-label="Periodo">
+    <button type="button" class="{% if modo == 'mes' %}activo{% endif %}" onclick="periodo('mes')">Mes</button>
+    <button type="button" class="{% if modo == 'acumulado' %}activo{% endif %}" onclick="periodo('acumulado')">Acumulado del año</button>
+  </span>
+  <span class="suave">Compara con presupuesto y año anterior</span>
+  {% if empresa.datos_ficticios %}<span class="sello">Datos ficticios · {{ empresa.nombre }}</span>{% endif %}
 </form>
-<div class="tarjeta tabla-scroll">
-  <table>
-    <thead><tr><th>Hotel</th><th>Ingresos</th><th>GOP</th><th>% GOP</th><th>Ocupación</th><th>ADR</th></tr></thead>
-    <tbody>
-      {% for f in filas %}
-      <tr><td>{{ f.hotel }}</td><td>{{ f.ingresos|euros }}</td><td>{{ f.gop|euros }}</td><td>{{ f.gop_pct|pct }}</td><td>{{ f.ocupacion|pct }}</td><td>{{ f.adr|euros:2 }}</td></tr>
-      {% endfor %}
-      {% if total %}
-      <tr class="total"><td>{{ total.hotel }}</td><td>{{ total.ingresos|euros }}</td><td>{{ total.gop|euros }}</td><td>{{ total.gop_pct|pct }}</td><td>{{ total.ocupacion|pct }}</td><td>{{ total.adr|euros:2 }}</td></tr>
-      {% endif %}
-    </tbody>
-  </table>
-</div>
-<p class="nota">Ingresos y GOP según Business Central. Ocupación = room nights / (habitaciones × días del mes). ADR = ingresos de alojamiento / room nights.</p>
-{% else %}
+{% endif %}{% endblock %}
+
+{% block contenido %}
+{% if not informe %}
+<h1>{{ empresa.nombre }}</h1>
 <div class="tarjeta">
   <p>Todavía no hay datos de esta empresa.</p>
   {% if perfil.puede_subir %}<p><a href="{% url 'subir' %}">Sube el informe del operador y los movimientos de Business Central</a> para ver el informe.</p>{% endif %}
 </div>
+{% else %}
+{% with i=informe %}
+
+<!-- ===================== 1. RESUMEN ===================== -->
+<section class="pagina" id="resumen">
+  <h1>¿Cómo ha ido {% if modo == 'mes' %}el mes{% else %}el año{% endif %}?</h1>
+  <p class="subtitulo">{{ i.titulo }} · {{ i.periodo_texto }} · {{ i.habitaciones }} habitaciones.</p>
+  <div class="rejilla r4">{% for t in i.tarjetas_portada %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>
+
+  <div class="rejilla r21 mt">
+    <div class="tarjeta">
+      <h2>¿Los ingresos se convierten en beneficio?</h2>
+      <div class="leyenda"><span><i style="background:#0F172A"></i>Ingresos</span><span><i style="background:#94A3B8"></i>Presupuesto</span>
+        <span><i style="background:#CBD5E1"></i>Año anterior</span><span><i style="background:#10B981"></i>GOP</span></div>
+      <div id="g-ingresos"></div>
+      <div class="nota">Miles de €. Últimos 13 meses.</div>
+    </div>
+    <div class="tarjeta">
+      <h2>¿Cuadran los números?</h2>
+      <div class="estado-cuadre">
+        <span class="punto" style="background:{% if i.diferencias %}var(--rojo){% else %}var(--verde){% endif %}"></span>
+        <div><b>{% if i.diferencias %}{{ i.diferencias|length }} diferencia{{ i.diferencias|length|pluralize }} · {{ i.importe_diferencias }}{% else %}Cuadra{% endif %}</b>
+          <div class="nota">Operador frente a contabilidad · {{ i.cuadre|length }} líneas · {{ mes_texto }}</div></div>
+      </div>
+      <div class="estado-cuadre" style="margin-bottom:14px">
+        <span class="punto" style="background:{% if i.ratios_mal %}var(--ambar){% else %}var(--verde){% endif %}"></span>
+        <div><b>{% if i.ratios_mal %}{{ i.ratios_mal|length }} ratio{{ i.ratios_mal|length|pluralize }} del operador mal calculado{{ i.ratios_mal|length|pluralize }}{% else %}Ratios del operador correctos{% endif %}</b>
+          <div class="nota">{{ i.ratios|length }} ratios comprobados</div></div>
+      </div>
+      <h2>En pocas frases</h2>
+      {% for f in i.frases %}<div class="frase">{{ f|safe }}</div>{% endfor %}
+    </div>
+  </div>
+
+  <div class="tarjeta mt">
+    <h2>¿Qué hay que revisar? <span class="suave">· {{ i.alertas|length }} de {{ i.total_alertas }} alertas, por prioridad</span></h2>
+    {% for a in i.alertas %}
+    <div class="alerta"><div class="barra {% if a.color == 'aviso' %}aviso{% endif %}"></div><div>
+      <div class="que"><span class="insignia i-gris">{{ a.tipo }}</span> {{ a.que }}</div>
+      <div class="cuanto">{{ a.cuanto }}</div>
+      {% if a.detalle %}<div class="cuanto">{{ a.detalle }}</div>{% endif %}
+      <div class="meta">{{ a.donde }} · {{ a.umbral }} · {{ a.periodo }} · <a href="#" data-ir="{{ a.pagina }}">ver detalle</a></div>
+    </div></div>
+    {% empty %}<p class="vacio">Nada que revisar este mes.</p>{% endfor %}
+  </div>
+  <div class="pie-informe">Última carga: {% if ultima_carga %}{{ ultima_carga.creada|date:"d/m/Y H:i" }}{% else %}—{% endif %} ·
+    Fuentes: informe del operador, movimientos contables y presupuesto. Cifras calculadas por código con fórmulas versionadas; ninguna cifra la escribe la IA.
+    {% if not i.hay_ppto %}No hay presupuesto cargado para este periodo.{% endif %}</div>
+</section>
+
+<!-- ===================== 2. VENTAS ===================== -->
+<section class="pagina" id="ventas">
+  <h1>¿Estamos vendiendo bien las habitaciones y los extras?</h1>
+  <p class="subtitulo">{{ i.titulo }} · {{ i.periodo_texto }}. Volumen, precio y lo que se vende además de la habitación.</p>
+  <div class="rejilla r4">{% for t in i.tarjetas_ventas %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>
+  <div class="rejilla r2 mt">
+    <div class="tarjeta"><h2>¿Llenamos el hotel?</h2>
+      <div class="leyenda"><span><i style="background:#0F172A"></i>Ocupación %</span><span><i style="background:#CBD5E1"></i>Año anterior</span></div>
+      <div id="g-ocupacion"></div></div>
+    <div class="tarjeta"><h2>¿A qué precio?</h2>
+      <div class="leyenda"><span><i style="background:#0F172A"></i>ADR €</span><span><i style="background:#CBD5E1"></i>Año anterior</span></div>
+      <div id="g-adr"></div></div>
+  </div>
+  <div class="tarjeta mt tabla-scroll">
+    <h2>¿Qué línea de ingreso se aleja del presupuesto?</h2>
+    <table>
+      <thead><tr><th>Línea</th><th class="d">Real</th><th class="d">Presupuesto</th><th class="d">Var. €</th><th class="d">Var. %</th><th class="d ocultar-movil">Año anterior</th></tr></thead>
+      <tbody>{% for f in i.ingresos %}
+        <tr class="{% if f.tipo == 'Subtotal' %}total{% endif %}"><td>{{ f.linea }}</td><td class="d">{{ f.real }}</td><td class="d">{{ f.ppto }}</td>
+          <td class="d {{ f.var.estado }}">{{ f.dif }}</td><td class="d {{ f.var.estado }}">{% if f.var %}{{ f.var.texto }}{% else %}—{% endif %}</td>
+          <td class="d ocultar-movil">{{ f.aa }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  <div class="pie-informe">Ocupación = room nights / (habitaciones × días). ADR = ingresos de alojamiento del operador / room nights (nunca el ADR que reporta el operador). Ingresos por línea según contabilidad.</div>
+</section>
+
+<!-- ===================== 3. CUADRE ===================== -->
+<section class="pagina" id="cuadre">
+  <h1>¿Cuadra lo que dice el operador con la contabilidad?</h1>
+  <p class="subtitulo">{{ i.titulo }} · {{ mes_texto }}. Línea a línea, con la causa de cada diferencia.</p>
+  <div class="tarjeta tabla-scroll"><h2>Ingresos: operador frente a contabilidad</h2>
+    <table>
+      <thead><tr>{% if i.es_grupo %}<th>Hotel</th>{% endif %}<th>Línea</th><th class="d">Operador</th><th class="d">Contabilidad</th><th class="d">Diferencia</th><th>Estado</th><th>Causa</th></tr></thead>
+      <tbody>{% for f in i.cuadre %}{% if not i.es_grupo or not f.cuadra %}
+        <tr>{% if i.es_grupo %}<td>{{ f.hotel }}</td>{% endif %}<td>{{ f.linea }}</td><td class="d">{{ f.operador }}</td><td class="d">{{ f.contabilidad }}</td>
+          <td class="d {% if not f.cuadra %}mal{% endif %}">{{ f.diferencia }}</td>
+          <td>{% if f.cuadra %}<span class="insignia i-ok">Cuadra</span>{% else %}<span class="insignia i-mal">No cuadra</span>{% endif %}</td>
+          <td>{{ f.causa }}</td></tr>
+      {% endif %}{% endfor %}</tbody>
+    </table>
+    {% if i.es_grupo %}<p class="nota">En la vista de grupo solo se listan las líneas que no cuadran ({{ i.diferencias|length }} de {{ i.cuadre|length }}). Elige un hotel para verlas todas.</p>{% endif %}
+  </div>
+  <div class="tarjeta tabla-scroll"><h2>¿Los ratios del operador están bien calculados?</h2>
+    <table>
+      <thead><tr>{% if i.es_grupo %}<th>Hotel</th>{% endif %}<th>Ratio</th><th class="d">Operador</th><th class="d">Recalculado</th><th class="d">Diferencia</th><th>Estado</th><th class="ocultar-movil">Nota</th></tr></thead>
+      <tbody>{% for x in i.ratios %}{% if not i.es_grupo or not x.correcto %}
+        <tr>{% if i.es_grupo %}<td>{{ x.hotel }}</td>{% endif %}<td>{{ x.ratio }}<div class="nota">{{ x.formula }}</div></td><td class="d">{{ x.operador }}</td><td class="d">{{ x.recalculado }}</td>
+          <td class="d {% if not x.correcto %}aviso{% endif %}">{{ x.diferencia }}</td>
+          <td>{% if x.correcto %}<span class="insignia i-ok">Correcto</span>{% else %}<span class="insignia i-aviso">Revisar</span>{% endif %}</td>
+          <td class="ocultar-movil">{{ x.nota }}</td></tr>
+      {% endif %}{% empty %}<tr><td colspan="7" class="vacio">No hay ratios del operador este mes.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===================== 4. CUENTA DE RESULTADOS ===================== -->
+<section class="pagina" id="resultados">
+  <h1>¿Cuánto ganamos y dónde se va el dinero?</h1>
+  <p class="subtitulo">{{ i.titulo }} · {{ i.periodo_texto }}. Cuenta de resultados USALI hasta GOP2.</p>
+  <div class="rejilla r4">{% for t in i.tarjetas_resultados %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>
+  <div class="tarjeta mt"><h2>De los ingresos al GOP2</h2><div id="g-cascada"></div>
+    <div class="nota">Miles de €. Ajustes = honorarios del operador y reserva FF&amp;E. Bajo AGOP = tributos, amortizaciones y gastos financieros.</div></div>
+  <div class="rejilla r2 mt">
+    <div class="tarjeta tabla-scroll"><h2>Cuenta de resultados <button type="button" class="boton" style="float:right;padding:4px 10px;font-size:12px" onclick="this.closest('.tarjeta').querySelector('table').classList.toggle('abierta')">Ver detalle</button></h2>
+      <table>
+        <thead><tr><th>Línea</th><th class="d">Real</th><th class="d">Ppto</th><th class="d">Var. %</th><th class="d ocultar-movil">Año ant.</th></tr></thead>
+        <tbody>{% for f in i.pyg %}
+          <tr class="{% if f.tipo == 'Subtotal' %}total{% elif f.tipo == 'Resultado' %}resultado{% else %}detalle{% endif %}">
+            <td>{{ f.linea }}</td><td class="d">{{ f.real }}</td><td class="d">{{ f.ppto }}</td>
+            <td class="d {{ f.var.estado }}">{% if f.var %}{{ f.var.texto }}{% else %}—{% endif %}</td><td class="d ocultar-movil">{{ f.aa }}</td></tr>
+        {% endfor %}</tbody>
+      </table>
+      <p class="nota">En los gastos, subir es rojo.</p>
+    </div>
+    <div class="tarjeta"><h2>¿Qué partida cuesta más por noche vendida?</h2>
+      <div class="leyenda"><span><i style="background:#EF4444"></i>Por encima del presupuesto</span><span><i style="background:#10B981"></i>Por debajo</span>
+        <span><i style="background:#0F172A;width:2px;height:12px"></i>Presupuesto</span></div>
+      <div id="g-coste-rn"></div>
+      <div class="nota">€ por room night vendida.</div></div>
+  </div>
+</section>
+
+<!-- ===================== 5. DESVIACIONES ===================== -->
+<section class="pagina" id="desviaciones">
+  <h1>¿Qué se ha desviado y por qué?</h1>
+  <p class="subtitulo">{{ i.titulo }} · {{ mes_texto }}. Líneas que se mueven más de un 5 % y más de 500 € frente al presupuesto o al año anterior. Pulsa una fila para ver sus apuntes.</p>
+  <div class="tarjeta tabla-scroll">
+    <table>
+      <thead><tr>{% if i.es_grupo %}<th>Hotel</th>{% endif %}<th>Línea</th><th class="d">Diferencia</th><th class="d">Var.</th><th>Causa</th><th class="ocultar-movil">Proveedor · documento</th></tr></thead>
+      <tbody>{% for d in i.desviaciones %}
+        <tr class="fila-desv" data-fila="ap-{{ forloop.counter }}">
+          {% if i.es_grupo %}<td>{{ d.hotel }}</td>{% endif %}
+          <td><b>{{ d.linea }}</b><div class="nota">frente al {{ d.referencia }}</div></td>
+          <td class="d {% if d.favorable %}bien{% else %}mal{% endif %}">{{ d.dif }}</td>
+          <td class="d {% if d.favorable %}bien{% else %}mal{% endif %}">{{ d.var }}</td>
+          <td>{% for c in d.causas %}<div class="causa"><span class="insignia {% if c.etiqueta == 'Sin causa' %}i-aviso{% elif c.etiqueta == 'Venta' %}i-gris{% else %}i-mal{% endif %}">{{ c.etiqueta }}</span> {{ c.texto }}{% if c.importe %} <span class="suave">({{ c.importe }})</span>{% endif %}</div>{% endfor %}</td>
+          <td class="ocultar-movil">{% for c in d.causas %}{% if c.proveedor %}{{ c.proveedor }}{% if c.documento %} · {{ c.documento }}{% endif %}<br>{% endif %}{% endfor %}</td>
+        </tr>
+        <tr class="apuntes" id="ap-{{ forloop.counter }}" style="display:none"><td colspan="6">
+          <b>Real {{ d.real }} · presupuesto {{ d.ppto }} · año anterior {{ d.aa }}</b><br>
+          {% for a in d.apuntes %}{{ a.fecha }} · {{ a.doc }} · {{ a.proveedor }} · {{ a.descripcion }} · {{ a.importe }}<br>{% empty %}Sin apuntes contables en esta línea este mes.{% endfor %}
+        </td></tr>
+      {% empty %}<tr><td colspan="6" class="vacio">Ninguna línea supera los umbrales este mes.</td></tr>{% endfor %}</tbody>
+    </table>
+    {% if i.falsas_alarmas %}<details><summary>{{ i.falsas_alarmas|length }} falsa{{ i.falsas_alarmas|length|pluralize }} alarma{{ i.falsas_alarmas|length|pluralize }} descartada{{ i.falsas_alarmas|length|pluralize }}</summary>
+      {% for d in i.falsas_alarmas %}<p style="margin:10px 0 0"><b>{{ d.linea }}</b>{% if i.es_grupo %} · {{ d.hotel }}{% endif %} · {{ d.dif }} frente al {{ d.referencia }} ({{ d.var }}). {{ d.causas.0.texto }}</p>{% endfor %}
+    </details>{% endif %}
+  </div>
+  <div class="pie-informe">Reglas: duplicada, factura de otro mes, proveedor nuevo, factura que falta, subida de precio, cuadre y falsa alarma. Umbrales y tolerancias en la configuración de la empresa.</div>
+</section>
+
+<!-- ===================== 6. COMPARATIVA ===================== -->
+{% if i.es_grupo %}
+<section class="pagina" id="comparativa">
+  <h1>¿Qué hotel lo hace mejor?</h1>
+  <p class="subtitulo">Grupo · {{ i.periodo_texto }}. Mismos KPIs por hotel. Elige un hotel arriba para ver su informe.</p>
+  <div class="tarjeta tabla-scroll">
+    <table>
+      <thead><tr><th>Hotel</th><th class="d">Ingresos</th><th class="d">GOP</th><th class="d">% GOP</th><th class="d">GOP vs ppto</th><th class="d">Ocupación</th><th class="d">ADR</th><th class="d">RevPAR</th><th class="d">Labor cost</th><th class="d">CPOR</th><th class="d">No cuadra</th><th class="d">Desviaciones</th></tr></thead>
+      <tbody>{% for f in i.comparativa %}
+        <tr><td><a href="?hotel={{ f.id }}&amp;mes={{ mes|date:'Y-m' }}&amp;periodo={{ modo }}&amp;p=resumen">{{ f.hotel }}</a></td><td class="d">{{ f.ingresos }}</td><td class="d">{{ f.gop }}</td><td class="d">{{ f.gop_pct }}</td>
+          <td class="d {{ f.gop_vs_ppto.estado }}">{% if f.gop_vs_ppto %}{{ f.gop_vs_ppto.texto }}{% else %}—{% endif %}</td>
+          <td class="d">{{ f.ocupacion }}</td><td class="d">{{ f.adr }}</td><td class="d">{{ f.revpar }}</td><td class="d">{{ f.labor }}</td><td class="d">{{ f.cpor }}</td>
+          <td class="d {% if f.cuadre %}mal{% endif %}">{{ f.cuadre }}</td><td class="d">{{ f.desviaciones }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  <div class="tarjeta"><h2>¿Qué hotel gasta de más de forma estructural?</h2>
+    {% for e in i.estructural %}<div class="alerta"><div class="barra aviso"></div><div><div class="que">{{ e.linea }} · {{ e.hotel }}</div>
+      <div class="cuanto">{{ e.valor }} por room night frente a {{ e.mediana }} en el resto de hoteles: unos {{ e.exceso }} al mes de más.</div>
+      <div class="meta">Mediana de los últimos 3 meses · aviso a partir de +20 %</div></div></div>
+    {% empty %}<p class="vacio">Ninguna partida supera en más de un 20 % a la del resto de hoteles.</p>{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<!-- ===================== MÓDULOS OPCIONALES (vista previa) ===================== -->
+{% include 'portal/_modulos.html' %}
+
+{{ i.graficos|json_script:"datos-graficos" }}
+{% endwith %}
 {% endif %}
 {% endblock %}
+
+{% block scripts %}{% if informe %}{% load static %}
+<script>window.CUADRALO = {pagina: "{{ pagina|escapejs }}", url_interes: "{% url 'interes' %}", csrf: "{{ csrf_token }}"};</script>
+<script src="{% static 'portal/informe.js' %}"></script>
+{% endif %}{% endblock %}

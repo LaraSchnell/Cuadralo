@@ -92,14 +92,17 @@ def registrar_carga(empresa, usuario, tipo, archivo):
 def datos_empresa(empresa):
     """Devuelve el modelo común de la empresa como tablas con los nombres de 07_estructura_datos."""
     mov = pd.DataFrame(list(MovimientoContable.objects.filter(empresa=empresa).values(
-        'fecha_registro', 'fecha_documento', 'num_documento', 'cuenta', 'descripcion', 'importe', 'iva',
-        'proveedor', 'finca', 'ceco')))
+        'fecha_registro', 'fecha_documento', 'num_documento', 'num_documento_externo', 'cuenta', 'descripcion',
+        'importe', 'iva', 'proveedor', 'finca', 'ceco')))
     if len(mov):
         mov = mov.rename(columns={
             'fecha_registro': 'Fecha de registro', 'fecha_documento': 'Fecha de emisión del documento',
-            'num_documento': 'Nº documento', 'cuenta': 'Cuenta contable', 'descripcion': 'Descripción',
+            'num_documento': 'Nº documento', 'num_documento_externo': 'Nº documento externo',
+            'cuenta': 'Cuenta contable', 'descripcion': 'Descripción',
             'importe': 'Importe sin IVA', 'iva': 'IVA', 'proveedor': 'Proveedor', 'finca': 'Finca', 'ceco': 'Ceco'})
         mov['Importe sin IVA'] = mov['Importe sin IVA'].astype(float)
+        mov['Fecha de registro'] = pd.to_datetime(mov['Fecha de registro'])
+        mov['Fecha de emisión del documento'] = pd.to_datetime(mov['Fecha de emisión del documento'])
         mov['Ceco'] = mov['Ceco'].replace('', None)
     pms = pd.DataFrame(list(FilaOperador.objects.filter(empresa=empresa).values(
         'mes', 'hotel', 'concepto', 'medida', 'valor', 'linea_informe')))
@@ -108,3 +111,12 @@ def datos_empresa(empresa):
                                   'valor': 'Valor', 'linea_informe': 'Línea del informe'})
         pms['Valor'] = pms['Valor'].astype(float)
     return mov, pms
+
+
+def presupuesto_empresa(empresa):
+    pres = pd.DataFrame(list(FilaPresupuesto.objects.filter(empresa=empresa).values('mes', 'hotel', 'linea', 'tipo', 'importe')))
+    if len(pres):
+        pres = pres.rename(columns={'mes': 'Fecha', 'hotel': 'Id hotel', 'linea': 'Línea', 'tipo': 'Tipo',
+                                    'importe': 'Presupuesto'})
+        pres['Presupuesto'] = pres['Presupuesto'].astype(float)
+    return pres

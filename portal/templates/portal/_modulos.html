@@ -1,0 +1,59 @@
+{% comment %}
+Módulos opcionales: NO están construidos. Cada página es una vista previa con cifras de ejemplo
+(no son del hotel) y un botón «Me interesa» que guarda el interés por empresa y usuario
+(tabla InteresModulo, visible en /equipo/). Se construye un módulo solo si lo piden 2-3 clientes que pagan.
+{% endcomment %}
+<section class="pagina" id="reputacion">
+  <h1>¿Qué dicen los huéspedes de nosotros?</h1>
+  <p class="subtitulo">Módulo opcional de reputación online.</p>
+  <div class="aviso-modulo"><div class="txt"><b>No incluido en el plan actual.</b>Necesita que el hotel autorice el acceso a su perfil de Google Business Profile y, si se quiere, las reseñas de Booking.com. Las cifras de abajo son un ejemplo, no son de tu hotel.</div>
+    <button type="button" class="boton {% if 'reputacion' in intereses %}hecho{% endif %}" data-modulo="reputacion">{% if 'reputacion' in intereses %}Anotado · te avisaremos{% else %}Me interesa este módulo{% endif %}</button></div>
+  <div class="rejilla r4 vista-previa">
+    <div class="tarjeta kpi"><div class="nombre">Nota media en Google</div><div class="valor">4,5</div><div class="comparar"><span class="mal">▼ 0,1 vs mes anterior</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Reseñas del mes</div><div class="valor">38</div><div class="comparar"><span class="neutro">31 el mes anterior</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Reseñas respondidas</div><div class="valor">61 %</div><div class="comparar"><span class="mal">objetivo 90 %</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Reseñas de 1-2 estrellas</div><div class="valor">5</div><div class="comparar"><span class="mal">▲ 3 vs mes anterior</span></div></div>
+  </div>
+  <div class="tarjeta mt vista-previa"><h2>¿De qué se quejan y qué elogian?</h2>
+    <div class="chips"><span class="chip" style="border-color:#FCA5A5">Ruido · 7 negativas</span><span class="chip" style="border-color:#FCA5A5">Desayuno · 4 negativas</span>
+      <span class="chip" style="border-color:#6EE7B7">Personal · 19 positivas</span><span class="chip" style="border-color:#6EE7B7">Ubicación · 22 positivas</span></div></div>
+</section>
+
+<section class="pagina" id="canales">
+  <h1>¿Cuánto nos cuesta cada reserva según el canal?</h1>
+  <p class="subtitulo">Módulo opcional de canales y marketing.</p>
+  <div class="aviso-modulo"><div class="txt"><b>No incluido en el plan actual.</b>Necesita exportar las reservas del PMS con su canal y, para el marketing, acceso a Google Analytics 4 y Google Ads. Las cifras de abajo son un ejemplo, no son de tu hotel.</div>
+    <button type="button" class="boton {% if 'canales' in intereses %}hecho{% endif %}" data-modulo="canales">{% if 'canales' in intereses %}Anotado · te avisaremos{% else %}Me interesa este módulo{% endif %}</button></div>
+  <div class="rejilla r4 vista-previa">
+    <div class="tarjeta kpi"><div class="nombre">Reservas directas</div><div class="valor">22 %</div><div class="comparar"><span class="bien">▲ 3 pp vs AA</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Comisión media de las OTA</div><div class="valor">16,8 %</div><div class="comparar"><span class="mal">▲ 0,9 pp vs AA</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Coste por reserva directa</div><div class="valor">9,40 €</div><div class="comparar"><span class="bien">frente a 24,10 € por OTA</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Cancelaciones</div><div class="valor">11 %</div><div class="comparar"><span class="neutro">Booking.com: 17 %</span></div></div>
+  </div>
+</section>
+
+<section class="pagina" id="personas">
+  <h1>¿Tenemos el equipo que necesitamos al coste correcto?</h1>
+  <p class="subtitulo">Módulo opcional de personas. Solo datos agregados por departamento, nunca por persona.</p>
+  <div class="aviso-modulo"><div class="txt"><b>No incluido en el plan actual.</b>Necesita el export de nóminas o del programa de RRHH. El coste de personal y el labor cost ya están en el informe. Las cifras de abajo son un ejemplo, no son de tu hotel.</div>
+    <button type="button" class="boton {% if 'personas' in intereses %}hecho{% endif %}" data-modulo="personas">{% if 'personas' in intereses %}Anotado · te avisaremos{% else %}Me interesa este módulo{% endif %}</button></div>
+  <div class="rejilla r4 vista-previa">
+    <div class="tarjeta kpi"><div class="nombre">Plantilla equivalente (FTE)</div><div class="valor">27,4</div><div class="comparar"><span class="neutro">31 personas</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Horas extra</div><div class="valor">186 h</div><div class="comparar"><span class="mal">▲ 64 h vs mes anterior</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Absentismo</div><div class="valor">4,1 %</div><div class="comparar"><span class="mal">▲ 1,2 pp vs AA</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Rotación 12 meses</div><div class="valor">29 %</div><div class="comparar"><span class="neutro">pisos: 41 %</span></div></div>
+  </div>
+</section>
+
+<section class="pagina" id="operaciones">
+  <h1>¿Funciona bien el día a día del hotel?</h1>
+  <p class="subtitulo">Módulo opcional de operaciones.</p>
+  <div class="aviso-modulo"><div class="txt"><b>No incluido en el plan actual.</b>Necesita los datos de la aplicación de pisos y mantenimiento, o un Excel mensual con incidencias y habitaciones fuera de servicio. Las cifras de abajo son un ejemplo, no son de tu hotel.</div>
+    <button type="button" class="boton {% if 'operaciones' in intereses %}hecho{% endif %}" data-modulo="operaciones">{% if 'operaciones' in intereses %}Anotado · te avisaremos{% else %}Me interesa este módulo{% endif %}</button></div>
+  <div class="rejilla r4 vista-previa">
+    <div class="tarjeta kpi"><div class="nombre">Habitaciones fuera de servicio</div><div class="valor">2</div><div class="comparar"><span class="neutro">31 noches perdidas</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Incidencias de mantenimiento</div><div class="valor">47</div><div class="comparar"><span class="mal">▲ 9 vs mes anterior</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Tiempo medio de resolución</div><div class="valor">19 h</div><div class="comparar"><span class="mal">objetivo 12 h</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Habitaciones por camarera y día</div><div class="valor">14,2</div><div class="comparar"><span class="bien">▲ 0,6 vs AA</span></div></div>
+  </div>
+</section>

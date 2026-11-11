@@ -1,12 +1,12 @@
 """Panel interno del equipo de Cuádralo (/equipo/). Los clientes no tienen acceso."""
 from django.contrib import admin
 
-from .models import Carga, Empresa, Perfil, RegistroAcceso
+from .models import Carga, Empresa, InteresModulo, Perfil, RegistroAcceso
 
 
 @admin.register(Empresa)
 class EmpresaAdmin(admin.ModelAdmin):
-    list_display = ('nombre', 'slug', 'creada')
+    list_display = ('nombre', 'slug', 'datos_ficticios', 'creada')
     prepopulated_fields = {'slug': ('nombre',)}
 
 
@@ -26,3 +26,9 @@ class CargaAdmin(admin.ModelAdmin):
 class RegistroAccesoAdmin(admin.ModelAdmin):
     list_display = ('fecha', 'usuario', 'empresa', 'ip')
     list_filter = ('empresa',)
+
+
+@admin.register(InteresModulo)
+class InteresModuloAdmin(admin.ModelAdmin):
+    list_display = ('fecha', 'empresa', 'usuario', 'modulo')
+    list_filter = ('modulo', 'empresa')

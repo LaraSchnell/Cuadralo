@@ -1,12 +1,14 @@
 import pandas as pd
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
+from django.http import JsonResponse
 from django.shortcuts import redirect, render
+from django.views.decorators.http import require_POST
 
-from cuadralo import calculos
+from cuadralo import informe
 from .acceso import perfil_requerido
-from .models import Carga, Perfil
-from .procesar import datos_empresa, leer_configuracion, procesar_empresa, registrar_carga
+from .models import Carga, InteresModulo, Perfil
+from .procesar import datos_empresa, leer_configuracion, presupuesto_empresa, procesar_empresa, registrar_carga
 
 MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
          'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -20,40 +22,54 @@ def _mes_texto(ts):
 def inicio(request):
     empresa, perfil = request.empresa, request.perfil
     mov, pms = datos_empresa(empresa)
-    contexto = {'empresa': empresa, 'perfil': perfil, 'filas': [], 'meses': []}
+    contexto = {'empresa': empresa, 'perfil': perfil, 'informe': None, 'meses': []}
     if len(mov) == 0 or len(pms) == 0:
         return render(request, 'portal/inicio.html', contexto)
 
     cfg = leer_configuracion(empresa)
-    pyg = calculos.cuenta_resultados(mov, cfg)
-    act = calculos.actividad(pms, cfg)
-    meses = sorted(set(act.index.get_level_values('Mes')) & set(pyg.index.get_level_values('Mes')), reverse=True)
-    pedido = request.GET.get('mes')
-    mes = pd.Timestamp(pedido + '-01') if pedido and pd.Timestamp(pedido + '-01') in meses else meses[0]
+    datos = informe.Datos(mov, pms, presupuesto_empresa(empresa), cfg)
+    if not datos.meses:
+        return render(request, 'portal/inicio.html', contexto)
 
-    nombres = cfg['hoteles'].set_index('Id hotel')['Hotel']
-    hoteles = list(nombres.index)
+    # Hoteles que puede ver este usuario: el director de hotel, solo el suyo (nunca se toma de la URL)
+    visibles = list(cfg['hoteles']['Id hotel'])
     if perfil.rol == Perfil.DIRECTOR_HOTEL:
-        hoteles = [perfil.hotel]
+        visibles = [perfil.hotel]
+    opciones_hotel = ([('GRUPO', 'Todo el grupo')] if len(visibles) > 1 else []) + [(h, datos.nombres[h]) for h in visibles]
+    seleccion = request.GET.get('hotel')
+    if seleccion not in dict(opciones_hotel):
+        seleccion = opciones_hotel[0][0]
 
-    filas = []
-    for h in hoteles:
-        if (h, mes) not in pyg.index or (h, mes) not in act.index:
-            continue
-        p, a = pyg.loc[(h, mes)], act.loc[(h, mes)]
-        filas.append({'hotel': nombres[h], 'ingresos': p['Total ingresos'], 'gop': p['GOP'],
-                      'gop_pct': p['% GOP'], 'ocupacion': a['Ocupación'], 'adr': a['ADR'],
-                      'rn': a['Room nights'], 'disp': a['Habitaciones disponibles'], 'aloj': a['Alojamiento']})
-    total = None
-    if len(filas) > 1:
-        ing = sum(f['ingresos'] for f in filas)
-        gop = sum(f['gop'] for f in filas)
-        rn = sum(f['rn'] for f in filas)
-        total = {'hotel': 'Total grupo', 'ingresos': ing, 'gop': gop, 'gop_pct': gop / ing if ing else None,
-                 'ocupacion': rn / sum(f['disp'] for f in filas), 'adr': sum(f['aloj'] for f in filas) / rn}
-    contexto.update({'filas': filas, 'total': total, 'mes': mes, 'mes_texto': _mes_texto(mes),
-                     'meses': [(m.strftime('%Y-%m'), _mes_texto(m)) for m in meses]})
+    pedido = request.GET.get('mes')
+    try:
+        mes = pd.Timestamp(pedido + '-01') if pedido else None
+    except ValueError:
+        mes = None
+    if mes not in datos.meses:
+        mes = datos.meses[0]
+    modo = 'acumulado' if request.GET.get('periodo') == 'acumulado' else 'mes'
+
+    contenido = informe.construir(datos, visibles, seleccion, mes, modo)
+    ultima = Carga.objects.filter(empresa=empresa, estado='ok').order_by('-creada').first()
+    contexto.update({
+        'informe': contenido, 'mes': mes, 'mes_texto': _mes_texto(mes), 'modo': modo,
+        'meses': [(m.strftime('%Y-%m'), _mes_texto(m)) for m in datos.meses],
+        'opciones_hotel': opciones_hotel, 'seleccion': seleccion, 'ultima_carga': ultima,
+        'intereses': set(InteresModulo.objects.filter(empresa=empresa, usuario=request.user).values_list('modulo', flat=True)),
+        'pagina': request.GET.get('p', 'resumen'),
+    })
     return render(request, 'portal/inicio.html', contexto)
+
+
+@require_POST
+@perfil_requerido
+def interes(request):
+    """«Me interesa este módulo»: se guarda por empresa y usuario para medir la demanda antes de construirlo."""
+    modulo = request.POST.get('modulo')
+    if modulo not in dict(InteresModulo.MODULOS):
+        return JsonResponse({'ok': False}, status=400)
+    InteresModulo.objects.get_or_create(empresa=request.empresa, usuario=request.user, modulo=modulo)
+    return JsonResponse({'ok': True})
 
 
 @perfil_requerido

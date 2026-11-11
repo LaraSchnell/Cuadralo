@@ -20,6 +20,7 @@ class Empresa(models.Model):
     slug = models.SlugField(unique=True, help_text='Nombre corto; también es la carpeta de sus archivos.')
     configuracion = models.FileField(upload_to=ruta_configuracion,
                                      help_text='Excel de configuración: hoteles, plan de cuentas, conceptos del operador, parámetros.')
+    datos_ficticios = models.BooleanField(default=False, help_text='Empresa de demostración: el informe lo indica en cada página.')
     creada = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -69,6 +70,22 @@ class Carga(models.Model):
 
     class Meta:
         ordering = ['-creada']
+
+
+class InteresModulo(models.Model):
+    """Clics en «Me interesa» de los módulos opcionales: así medimos qué módulo piden antes de construirlo."""
+    MODULOS = [('reputacion', 'Reputación'), ('canales', 'Canales y marketing'), ('personas', 'Personas'),
+               ('operaciones', 'Operaciones')]
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    modulo = models.CharField(max_length=20, choices=MODULOS)
+    fecha = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha']
+        unique_together = [('empresa', 'usuario', 'modulo')]
+        verbose_name = 'interés en un módulo'
+        verbose_name_plural = 'interés en módulos opcionales'
 
 
 class RegistroAcceso(models.Model):

@@ -36,7 +36,10 @@ class Command(BaseCommand):
     def handle(self, *args, **opciones):
         empresas = {}
         for slug, nombre in [('grupo-demo', 'Grupo Demo Cuádralo'), ('prueba-aislamiento', 'Hotel Prueba Aislamiento')]:
-            empresa, creada = Empresa.objects.get_or_create(slug=slug, defaults={'nombre': nombre})
+            empresa, creada = Empresa.objects.get_or_create(slug=slug, defaults={'nombre': nombre, 'datos_ficticios': True})
+            if not empresa.datos_ficticios:
+                empresa.datos_ficticios = True
+                empresa.save(update_fields=['datos_ficticios'])
             if creada or not empresa.configuracion:
                 with open(settings.CONFIG_DEMO, 'rb') as f:
                     empresa.configuracion.save('configuracion.xlsx', File(f), save=True)

@@ -7,24 +7,42 @@
   <link rel="stylesheet" href="{% static 'portal/estilo.css' %}">
 </head>
 <body>
-  <header>
-    <div class="barra">
-      <a class="marca" href="{% url 'inicio' %}">Cuádralo<small>Control de gestión hotelero</small></a>
-      {% if user.is_authenticated and perfil %}
-      <nav>
-        <a href="{% url 'inicio' %}">Informe</a>
-        {% if perfil.puede_subir %}<a href="{% url 'subir' %}">Subir archivos</a>{% endif %}
-        <a href="{% url 'cargas' %}">Historial de cargas</a>
-      </nav>
-      <div class="usuario">{{ empresa.nombre }} · {{ user.username }} ·
+<div class="app">
+  <nav class="lateral" aria-label="Menú">
+    <a class="marca" href="{% url 'inicio' %}">Cuádralo<small>Control de gestión hotelero</small></a>
+    {% if user.is_authenticated and perfil %}
+      <div class="grupo-nav">Informe</div>
+      {% url 'inicio' as url_inicio %}
+      <a class="enlace" data-p="resumen" href="{{ url_inicio }}?p=resumen"><span class="n">1</span>Resumen del mes</a>
+      <a class="enlace" data-p="ventas" href="{{ url_inicio }}?p=ventas"><span class="n">2</span>Ventas</a>
+      <a class="enlace" data-p="cuadre" href="{{ url_inicio }}?p=cuadre"><span class="n">3</span>Cuadre</a>
+      <a class="enlace" data-p="resultados" href="{{ url_inicio }}?p=resultados"><span class="n">4</span>Cuenta de resultados</a>
+      <a class="enlace" data-p="desviaciones" href="{{ url_inicio }}?p=desviaciones"><span class="n">5</span>Desviaciones</a>
+      {% if perfil.rol != 'director_hotel' %}
+      <a class="enlace" data-p="comparativa" href="{{ url_inicio }}?p=comparativa&amp;hotel=GRUPO"><span class="n">6</span>Comparativa</a>
+      {% endif %}
+      <div class="grupo-nav">Módulos opcionales</div>
+      <a class="enlace opcional" data-p="reputacion" href="{{ url_inicio }}?p=reputacion">Reputación<span class="etiqueta">Opcional</span></a>
+      <a class="enlace opcional" data-p="canales" href="{{ url_inicio }}?p=canales">Canales y marketing<span class="etiqueta">Opcional</span></a>
+      <a class="enlace opcional" data-p="personas" href="{{ url_inicio }}?p=personas">Personas<span class="etiqueta">Opcional</span></a>
+      <a class="enlace opcional" data-p="operaciones" href="{{ url_inicio }}?p=operaciones">Operaciones<span class="etiqueta">Opcional</span></a>
+      <div class="grupo-nav">Datos</div>
+      {% if perfil.puede_subir %}<a class="enlace" href="{% url 'subir' %}">Subir archivos</a>{% endif %}
+      <a class="enlace" href="{% url 'cargas' %}">Historial de cargas</a>
+      <div class="pie-nav">
+        <span class="quien">{{ empresa.nombre }}<br>{{ user.username }} · </span>
         <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">Salir</button></form>
       </div>
-      {% endif %}
-    </div>
-  </header>
+    {% endif %}
+  </nav>
   <main>
-    {% for m in messages %}<div class="mensaje {{ m.tags }}">{{ m }}</div>{% endfor %}
-    {% block contenido %}{% endblock %}
+    {% block barra %}{% endblock %}
+    <div class="contenido">
+      {% for m in messages %}<div class="mensaje {{ m.tags }}">{{ m }}</div>{% endfor %}
+      {% block contenido %}{% endblock %}
+    </div>
   </main>
+</div>
+{% block scripts %}{% endblock %}
 </body>
 </html>

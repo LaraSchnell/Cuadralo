@@ -1,0 +1,10 @@
+<div class="tarjeta kpi">
+  <div class="nombre">{{ t.nombre }}<span class="info" title="{{ t.formula }}">i</span></div>
+  <div class="valor">{{ t.valor }}</div>
+  <div class="comparar">
+    {% if t.ppto %}<span class="{{ t.ppto.estado }}"><span class="lbl">vs ppto </span>{{ t.ppto.flecha }} {{ t.ppto.texto }}</span>
+    {% else %}<span class="sin">Sin presupuesto</span>{% endif %}
+    {% if t.aa %}<span class="{{ t.aa.estado }}"><span class="lbl">vs AA </span>{{ t.aa.flecha }} {{ t.aa.texto }}</span>
+    {% else %}<span class="sin">Sin año anterior</span>{% endif %}
+  </div>
+</div>
