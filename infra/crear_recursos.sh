@@ -9,9 +9,10 @@
 #
 # Se puede repetir en otra cuenta (por ejemplo, la de la empresa): crea todo de cero con nombres nuevos.
 set -euo pipefail
+trap 'echo; echo "ERROR: el script se ha parado en la línea $LINENO. Copia el mensaje de arriba y pásaselo a Claude."' ERR
 
 UBICACION="${UBICACION:-westeurope}"          # región UE (Países Bajos)
-SUFIJO="${SUFIJO:-$(tr -dc 'a-z0-9' </dev/urandom | head -c 5)}"
+SUFIJO="${SUFIJO:-$(openssl rand -hex 3 | cut -c1-5)}"
 RG="cuadralo-rg"
 SQL_SERVER="cuadralo-sql-$SUFIJO"
 SQL_DB="cuadralo"
@@ -22,12 +23,17 @@ KV="cuadralo-kv-$SUFIJO"
 PLAN="cuadralo-plan"
 APP="cuadralo-demo-$SUFIJO"
 
-clave() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$1"; }
+clave() { openssl rand -base64 64 | tr -dc 'A-Za-z0-9' | cut -c1-"$1"; }
 SQL_PASS="$(clave 20)Aa1#"
 DJANGO_SECRET="$(clave 50)"
 PASS_DIRECTOR="$(clave 14)"
 PASS_CONTABLE="$(clave 14)"
 PASS_PRUEBA="$(clave 14)"
+
+echo "== 0/7 Activando los servicios de Azure en tu suscripción (la primera vez tarda 1-3 minutos)"
+for proveedor in Microsoft.Sql Microsoft.Storage Microsoft.KeyVault Microsoft.Web Microsoft.CloudShell; do
+  az provider register -n "$proveedor" --wait -o none
+done
 
 echo "== 1/7 Grupo de recursos $RG en $UBICACION"
 az group create -n "$RG" -l "$UBICACION" -o none
