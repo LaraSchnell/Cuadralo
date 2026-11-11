@@ -1,0 +1,9 @@
+Django>=5.2,<5.3
+pandas>=2.2
+openpyxl>=3.1
+whitenoise>=6.7
+gunicorn>=23.0
+django-storages[azure]>=1.14
+mssql-django>=2.0
+pytest>=8.0
+pytest-django>=4.9

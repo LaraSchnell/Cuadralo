@@ -1,0 +1,20 @@
+{% extends 'portal/base.html' %}
+{% block titulo %}Historial de cargas{% endblock %}
+{% block contenido %}
+<h1>Historial de cargas</h1>
+<p class="subtitulo">Quién subió cada archivo, cuándo y con qué resultado.</p>
+<div class="tarjeta tabla-scroll">
+  <table>
+    <thead><tr><th>Fecha</th><th>Archivo</th><th>Tipo</th><th>Usuario</th><th>Estado</th></tr></thead>
+    <tbody>
+    {% for c in cargas %}
+      <tr><td>{{ c.creada|date:"d/m/Y H:i" }}</td><td>{{ c.nombre_original }}</td><td>{{ c.get_tipo_display }}</td>
+          <td>{{ c.usuario.username|default:"—" }}</td>
+          <td><span class="estado {{ c.estado }}">{{ c.get_estado_display }}</span>{% if c.mensaje %}<div class="nota" style="white-space:normal;text-align:right">{{ c.mensaje }}</div>{% endif %}</td></tr>
+    {% empty %}
+      <tr><td colspan="5">Todavía no hay cargas.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

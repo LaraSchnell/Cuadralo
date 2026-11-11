@@ -1,0 +1,20 @@
+{% extends 'portal/base.html' %}
+{% block titulo %}Subir archivos{% endblock %}
+{% block contenido %}
+<h1>Subir archivos</h1>
+<p class="subtitulo">Los archivos se guardan en la carpeta de {{ empresa.nombre }} y se procesan al momento.</p>
+<div class="tarjeta">
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <label for="tipo">Tipo de archivo</label>
+    <select id="tipo" name="tipo" required>
+      <option value="">Elige uno…</option>
+      {% for valor, texto in tipos %}<option value="{{ valor }}">{{ texto }}</option>{% endfor %}
+    </select>
+    <label for="archivos">Archivos Excel (.xlsx)</label>
+    <input id="archivos" type="file" name="archivos" accept=".xlsx" multiple required>
+    <p class="nota">Si subes un archivo con el mismo nombre que uno anterior, sustituye al anterior.</p>
+    <button class="principal" type="submit">Subir y procesar</button>
+  </form>
+</div>
+{% endblock %}

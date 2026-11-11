@@ -1,0 +1,18 @@
+{% extends 'portal/base.html' %}
+{% block titulo %}Entrar{% endblock %}
+{% block contenido %}
+<div class="login tarjeta">
+  <h1>Entrar</h1>
+  <p class="subtitulo">Accede con el usuario que te ha dado Cuádralo.</p>
+  {% if form.errors %}<div class="mensaje error">Usuario o contraseña incorrectos.</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <label for="id_username">Usuario</label>
+    <input type="text" name="username" id="id_username" autocomplete="username" required autofocus>
+    <label for="id_password">Contraseña</label>
+    <input type="password" name="password" id="id_password" autocomplete="current-password" required>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button class="principal" type="submit">Entrar</button>
+  </form>
+</div>
+{% endblock %}

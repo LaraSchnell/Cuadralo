@@ -1,0 +1,33 @@
+{% extends 'portal/base.html' %}{% load cifras %}
+{% block titulo %}Informe{% endblock %}
+{% block contenido %}
+<h1>{{ empresa.nombre }}</h1>
+{% if filas %}
+<p class="subtitulo">Resumen de {{ mes_texto }}. Cifras calculadas a partir del informe del operador y de Business Central.</p>
+<form class="selector" method="get">
+  <label for="mes" style="margin:0">Mes</label>
+  <select id="mes" name="mes" onchange="this.form.submit()">
+    {% for valor, texto in meses %}<option value="{{ valor }}" {% if texto == mes_texto %}selected{% endif %}>{{ texto }}</option>{% endfor %}
+  </select>
+</form>
+<div class="tarjeta tabla-scroll">
+  <table>
+    <thead><tr><th>Hotel</th><th>Ingresos</th><th>GOP</th><th>% GOP</th><th>Ocupación</th><th>ADR</th></tr></thead>
+    <tbody>
+      {% for f in filas %}
+      <tr><td>{{ f.hotel }}</td><td>{{ f.ingresos|euros }}</td><td>{{ f.gop|euros }}</td><td>{{ f.gop_pct|pct }}</td><td>{{ f.ocupacion|pct }}</td><td>{{ f.adr|euros:2 }}</td></tr>
+      {% endfor %}
+      {% if total %}
+      <tr class="total"><td>{{ total.hotel }}</td><td>{{ total.ingresos|euros }}</td><td>{{ total.gop|euros }}</td><td>{{ total.gop_pct|pct }}</td><td>{{ total.ocupacion|pct }}</td><td>{{ total.adr|euros:2 }}</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+<p class="nota">Ingresos y GOP según Business Central. Ocupación = room nights / (habitaciones × días del mes). ADR = ingresos de alojamiento / room nights.</p>
+{% else %}
+<div class="tarjeta">
+  <p>Todavía no hay datos de esta empresa.</p>
+  {% if perfil.puede_subir %}<p><a href="{% url 'subir' %}">Sube el informe del operador y los movimientos de Business Central</a> para ver el informe.</p>{% endif %}
+</div>
+{% endif %}
+{% endblock %}
