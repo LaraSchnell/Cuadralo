@@ -8,14 +8,42 @@
 #   3. Ejecuta:  bash crear_recursos.sh
 #   4. Al final verás lo que tienes que copiar en GitHub. También queda guardado en ~/cuadralo_resumen.txt
 #
-# Se puede repetir en otra cuenta (por ejemplo, la de la empresa): crea todo de cero con nombres nuevos.
+# Si se para, vuelve a ejecutarlo: reutiliza lo ya creado (nombres y claves en ~/cuadralo_estado.env).
+# En otra cuenta (por ejemplo, la de la empresa) crea todo de cero con nombres nuevos.
 set -euo pipefail
 trap 'echo; echo "ERROR: el script se ha parado en la línea $LINENO. Copia el mensaje de arriba y pásaselo a Claude."' ERR
 
 UBICACION="${UBICACION:-spaincentral}"        # región UE (Madrid)
 SQL_PLAN="${SQL_PLAN:-basic}"                 # basic: ~5 $/mes, siempre encendida | gratis: oferta gratuita (no disponible en todas las regiones)
-SUFIJO="${SUFIJO:-$(openssl rand -hex 3 | cut -c1-5)}"
 RG="cuadralo-rg"
+ESTADO="$HOME/cuadralo_estado.env"            # guarda nombres y claves para poder repetir el script sin empezar de cero
+clave() { openssl rand -base64 64 | tr -dc 'A-Za-z0-9' | cut -c1-"$1"; }
+if [ -f "$ESTADO" ]; then
+  source "$ESTADO"
+else
+  EXISTENTE="$(az sql server list -g "$RG" --query '[0].name' -o tsv 2>/dev/null || true)"
+  SUFIJO="${SUFIJO:-${EXISTENTE#cuadralo-sql-}}"
+  SUFIJO="${SUFIJO:-$(openssl rand -hex 3 | cut -c1-5)}"
+  SQL_PASS="$(clave 20)Aa1#"
+  DJANGO_SECRET="$(clave 50)"
+  PASS_DIRECTOR="$(clave 14)"
+  PASS_CONTABLE="$(clave 14)"
+  PASS_PRUEBA="$(clave 14)"
+  umask 077
+  printf 'SUFIJO=%q\nSQL_PASS=%q\nDJANGO_SECRET=%q\nPASS_DIRECTOR=%q\nPASS_CONTABLE=%q\nPASS_PRUEBA=%q\n' \
+    "$SUFIJO" "$SQL_PASS" "$DJANGO_SECRET" "$PASS_DIRECTOR" "$PASS_CONTABLE" "$PASS_PRUEBA" > "$ESTADO"
+fi
+echo "Nombres con el sufijo: $SUFIJO (si el script se para, vuelve a ejecutarlo y continuará)"
+
+# Azure a veces tarda en "ver" un recurso recién creado: repite la comprobación hasta 5 minutos.
+esperar() {
+  for i in $(seq 1 30); do
+    "$@" -o none 2>/dev/null && return 0
+    echo "   esperando a que Azure termine de crear el recurso ($i/30)…"; sleep 10
+  done
+  "$@" -o none
+}
+existe() { "$@" -o none 2>/dev/null; }
 SQL_SERVER="cuadralo-sql-$SUFIJO"
 SQL_DB="cuadralo"
 SQL_ADMIN="cuadraloadmin"
@@ -25,12 +53,6 @@ KV="cuadralo-kv-$SUFIJO"
 PLAN="cuadralo-plan"
 APP="cuadralo-demo-$SUFIJO"
 
-clave() { openssl rand -base64 64 | tr -dc 'A-Za-z0-9' | cut -c1-"$1"; }
-SQL_PASS="$(clave 20)Aa1#"
-DJANGO_SECRET="$(clave 50)"
-PASS_DIRECTOR="$(clave 14)"
-PASS_CONTABLE="$(clave 14)"
-PASS_PRUEBA="$(clave 14)"
 
 echo "== 0/7 Activando los servicios de Azure en tu suscripción (la primera vez tarda 1-3 minutos)"
 for proveedor in Microsoft.Sql Microsoft.Storage Microsoft.KeyVault Microsoft.Web Microsoft.CloudShell; do
@@ -41,21 +63,15 @@ echo "== 1/7 Grupo de recursos $RG en $UBICACION"
 az group create -n "$RG" -l "$UBICACION" -o none
 
 echo "== 2/7 Azure SQL (plan: $SQL_PLAN)"
-if ! az sql server show -g "$RG" -n "$SQL_SERVER" -o none 2>/dev/null; then
+existe az sql server show -g "$RG" -n "$SQL_SERVER" || \
   az sql server create -g "$RG" -n "$SQL_SERVER" -l "$UBICACION" -u "$SQL_ADMIN" -p "$SQL_PASS" --minimal-tls-version 1.2 -o none
-fi
-# Azure a veces tarda en "ver" el servidor recién creado: esperamos hasta 5 minutos.
-for i in $(seq 1 30); do
-  az sql server show -g "$RG" -n "$SQL_SERVER" -o none 2>/dev/null && break
-  echo "   esperando a que el servidor de base de datos esté listo ($i/30)…"; sleep 10
-done
-if ! az sql server show -g "$RG" -n "$SQL_SERVER" -o none 2>/dev/null; then
-  echo "El servidor $SQL_SERVER no aparece. Servidores que sí existen:"; az sql server list -o table || true
-  false
-fi
+esperar az sql server show -g "$RG" -n "$SQL_SERVER"
+az sql server update -g "$RG" -n "$SQL_SERVER" -p "$SQL_PASS" -o none   # la contraseña siempre coincide con la guardada
 az sql server firewall-rule create -g "$RG" -s "$SQL_SERVER" -n PermitirServiciosAzure \
   --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0 -o none
-if [ "$SQL_PLAN" = "gratis" ]; then
+if existe az sql db show -g "$RG" -s "$SQL_SERVER" -n "$SQL_DB"; then
+  echo "   la base de datos ya existe"
+elif [ "$SQL_PLAN" = "gratis" ]; then
   az sql db create -g "$RG" -s "$SQL_SERVER" -n "$SQL_DB" \
     --edition GeneralPurpose --compute-model Serverless --family Gen5 --capacity 2 \
     --use-free-limit --free-limit-exhaustion-behavior AutoPause --backup-storage-redundancy Local -o none
@@ -65,19 +81,23 @@ else
 fi
 
 echo "== 3/7 Almacenamiento privado para los Excels subidos"
-az storage account create -g "$RG" -n "$STORAGE" -l "$UBICACION" --sku Standard_LRS --kind StorageV2 \
+existe az storage account show -g "$RG" -n "$STORAGE" || \
+  az storage account create -g "$RG" -n "$STORAGE" -l "$UBICACION" --sku Standard_LRS --kind StorageV2 \
   --min-tls-version TLS1_2 --allow-blob-public-access false -o none
+esperar az storage account show -g "$RG" -n "$STORAGE"
 STORAGE_KEY="$(az storage account keys list -g "$RG" -n "$STORAGE" --query '[0].value' -o tsv)"
-az storage container create -n "$CONTENEDOR" --account-name "$STORAGE" --account-key "$STORAGE_KEY" -o none
+az storage container create -n "$CONTENEDOR" --account-name "$STORAGE" --account-key "$STORAGE_KEY" -o none 2>/dev/null
 
 echo "== 4/7 Key Vault para las claves"
-az keyvault create -g "$RG" -n "$KV" -l "$UBICACION" --enable-rbac-authorization true -o none
+existe az keyvault show -g "$RG" -n "$KV" || \
+  az keyvault create -g "$RG" -n "$KV" -l "$UBICACION" --enable-rbac-authorization true -o none
+esperar az keyvault show -g "$RG" -n "$KV"
 KV_ID="$(az keyvault show -n "$KV" --query id -o tsv)"
 YO="$(az ad signed-in-user show --query id -o tsv)"
 az role assignment create --assignee-object-id "$YO" --assignee-principal-type User \
-  --role "Key Vault Secrets Officer" --scope "$KV_ID" -o none
+  --role "Key Vault Secrets Officer" --scope "$KV_ID" -o none 2>/dev/null || true
 echo "   esperando a que el permiso se active (60 s)…"; sleep 60
-guardar() { az keyvault secret set --vault-name "$KV" -n "$1" --value "$2" -o none; }
+guardar() { esperar az keyvault secret set --vault-name "$KV" -n "$1" --value "$2"; }
 guardar django-secret-key "$DJANGO_SECRET"
 guardar sql-password "$SQL_PASS"
 guardar storage-key "$STORAGE_KEY"
@@ -86,12 +106,16 @@ guardar demo-password-contable "$PASS_CONTABLE"
 guardar demo-password-prueba "$PASS_PRUEBA"
 
 echo "== 5/7 Web (App Service, plan gratuito F1, Python 3.12)"
-az appservice plan create -g "$RG" -n "$PLAN" -l "$UBICACION" --is-linux --sku F1 -o none
-az webapp create -g "$RG" -p "$PLAN" -n "$APP" --runtime "PYTHON:3.12" -o none
+existe az appservice plan show -g "$RG" -n "$PLAN" || \
+  az appservice plan create -g "$RG" -n "$PLAN" -l "$UBICACION" --is-linux --sku F1 -o none
+esperar az appservice plan show -g "$RG" -n "$PLAN"
+existe az webapp show -g "$RG" -n "$APP" || \
+  az webapp create -g "$RG" -p "$PLAN" -n "$APP" --runtime "PYTHON:3.12" -o none
+esperar az webapp show -g "$RG" -n "$APP"
 az webapp update -g "$RG" -n "$APP" --https-only true -o none
 APP_ID="$(az webapp identity assign -g "$RG" -n "$APP" --query principalId -o tsv)"
 az role assignment create --assignee-object-id "$APP_ID" --assignee-principal-type ServicePrincipal \
-  --role "Key Vault Secrets User" --scope "$KV_ID" -o none
+  --role "Key Vault Secrets User" --scope "$KV_ID" -o none 2>/dev/null || true
 
 echo "== 6/7 Configuración de la web (las claves se leen de Key Vault, no se copian)"
 ref() { echo "@Microsoft.KeyVault(VaultName=$KV;SecretName=$1)"; }
