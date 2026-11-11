@@ -1,0 +1,83 @@
+{% extends 'portal/base.html' %}{% load cifras %}
+{% block titulo %}Apuntes y proveedores{% endblock %}
+{% block contenido %}
+{% if sin_datos %}
+<h1>Apuntes y proveedores</h1>
+<div class="tarjeta"><p>Todavía no hay datos de esta empresa.</p></div>
+{% else %}
+<h1>¿En qué y con quién gastamos?</h1>
+<p class="subtitulo">Apuntes contables con filtros. El resumen compara con el mismo filtro un año antes. Lo que ves es lo que se exporta a Excel.</p>
+
+<form class="tarjeta filtros-apuntes" method="get">
+  <input type="hidden" name="mes" value="{{ mes|date:'Y-m' }}">
+  <div class="rejilla-filtros">
+    {% if opciones_hotel|length > 1 %}
+    <div><label for="a-hotel">Hotel</label><select id="a-hotel" name="hotel">
+      {% for v, t in opciones_hotel %}<option value="{{ v }}" {% if v == seleccion %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+    {% else %}<input type="hidden" name="hotel" value="{{ seleccion }}">{% endif %}
+    <div><label for="a-desde">Desde (fecha de registro)</label><input id="a-desde" type="date" name="desde" value="{{ f.desde|date:'Y-m-d' }}"></div>
+    <div><label for="a-hasta">Hasta</label><input id="a-hasta" type="date" name="hasta" value="{{ f.hasta|date:'Y-m-d' }}"></div>
+    <div><label for="a-prov">Proveedor</label><select id="a-prov" name="proveedor"><option value="">Todos</option>
+      {% for p in proveedores %}<option value="{{ p }}" {% if p == f.proveedor %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></div>
+    <div><label for="a-ceco">Centro de coste</label><select id="a-ceco" name="ceco"><option value="">Todos</option>
+      {% for c in cecos %}<option value="{{ c }}" {% if c == f.ceco %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></div>
+    <div><label for="a-linea">Línea del informe</label><select id="a-linea" name="linea"><option value="">Todas</option>
+      {% for l in lineas %}<option value="{{ l }}" {% if l == f.linea %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+    <div><label for="a-bloque">Bloque</label><select id="a-bloque" name="bloque"><option value="">Todos</option>
+      {% for b in bloques %}<option value="{{ b }}" {% if b == f.bloque %}selected{% endif %}>{{ b }}</option>{% endfor %}</select></div>
+    <div><label for="a-cuenta">Cuenta (empieza por)</label><input id="a-cuenta" type="text" name="cuenta" value="{{ f.cuenta|default:'' }}" placeholder="p. ej. 628"></div>
+    <div><label for="a-texto">Buscar texto</label><input id="a-texto" type="text" name="texto" value="{{ f.texto|default:'' }}" placeholder="descripción o nº de factura"></div>
+    <div><label for="a-min">Importe mínimo (€)</label><input id="a-min" type="text" name="importe_min" value="{{ f.importe_min|default_if_none:'' }}" placeholder="p. ej. 500"></div>
+    <div><label for="a-agrupar">Agrupar por</label><select id="a-agrupar" name="agrupar">
+      {% for v, t in agrupaciones %}<option value="{{ v }}" {% if v == por %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+  </div>
+  <div class="acciones-filtros">
+    <button class="boton" type="submit">Aplicar filtros</button>
+    <a class="boton secundario" href="{% url 'apuntes' %}?hotel={{ seleccion }}&amp;mes={{ mes|date:'Y-m' }}">Quitar filtros</a>
+    <span class="suave">Rápido:</span>
+    <a href="?hotel={{ seleccion }}&amp;mes={{ mes|date:'Y-m' }}&amp;agrupar={{ por }}">{{ mes_texto }}</a> ·
+    <a href="?hotel={{ seleccion }}&amp;mes={{ mes|date:'Y-m' }}&amp;agrupar={{ por }}&amp;desde={{ mes|date:'Y' }}-01-01&amp;hasta={{ f.hasta|date:'Y-m-d' }}">Acumulado del año</a>
+    <a class="boton excel" href="?{{ url_exportar }}">Exportar a Excel</a>
+  </div>
+</form>
+
+<div class="rejilla r3 mt">
+  <div class="tarjeta kpi"><div class="nombre">Importe filtrado</div><div class="valor">{{ total_importe|euros }}</div>
+    <div class="comparar"><span class="lbl">Año anterior {{ total_aa|euros }}</span></div></div>
+  <div class="tarjeta kpi"><div class="nombre">Apuntes</div><div class="valor">{{ total_apuntes }}</div>
+    <div class="comparar"><span class="lbl">{{ f.desde|date:'d/m/Y' }} – {{ f.hasta|date:'d/m/Y' }}</span></div></div>
+  <div class="tarjeta kpi"><div class="nombre">Filas del resumen</div><div class="valor">{{ resumen|length }}</div>
+    <div class="comparar"><span class="lbl">Pulsa uno para filtrar por él</span></div></div>
+</div>
+
+<div class="tarjeta mt tabla-scroll">
+  <h2>Por {{ col_resumen|lower }} <span class="suave">· frente al mismo filtro un año antes</span></h2>
+  <table>
+    <thead><tr><th>{{ col_resumen }}</th><th class="d">Importe</th><th class="d">Año anterior</th><th class="d">Diferencia</th><th class="d">Var. %</th><th class="d">Apuntes</th></tr></thead>
+    <tbody>{% for fila in resumen %}{% with nombre=fila|clave:col_resumen %}
+      <tr><td>{% if por == 'proveedor' %}<a href="?{{ request.GET.urlencode }}&amp;proveedor={{ nombre|urlencode }}">{{ nombre }}</a>
+          {% elif por == 'linea' %}<a href="?{{ request.GET.urlencode }}&amp;linea={{ nombre|urlencode }}&amp;agrupar=proveedor">{{ nombre }}</a>
+          {% elif por == 'ceco' %}<a href="?{{ request.GET.urlencode }}&amp;ceco={{ nombre|urlencode }}&amp;agrupar=linea">{{ nombre }}</a>
+          {% elif por == 'mes' %}{{ nombre|date:'F Y'|lower }}{% else %}{{ nombre }}{% endif %}</td>
+        <td class="d">{{ fila.Importe|euros }}</td><td class="d">{{ fila|clave:'Año anterior'|euros }}</td>
+        <td class="d">{{ fila.Diferencia|euros }}</td><td class="d">{{ fila|clave:'Var %'|pct }}</td><td class="d">{{ fila.Apuntes }}</td></tr>
+    {% endwith %}{% empty %}<tr><td colspan="6" class="vacio">Ningún apunte con estos filtros.</td></tr>{% endfor %}</tbody>
+  </table>
+  <p class="nota">Importes sin IVA. Los ingresos aparecen en positivo. Diferencia = importe − año anterior.</p>
+</div>
+
+<div class="tarjeta mt tabla-scroll">
+  <h2>Apuntes <span class="suave">· {% if total_apuntes > max_filas %}se muestran los {{ max_filas }} primeros de {{ total_apuntes }}; el Excel los incluye todos{% else %}{{ total_apuntes }}{% endif %}</span></h2>
+  <table class="tabla-apuntes">
+    <thead><tr><th>Fecha</th><th class="ocultar-movil">Emisión</th>{% if opciones_hotel|length > 1 and seleccion == 'GRUPO' %}<th>Hotel</th>{% endif %}<th>Documento</th><th>Proveedor</th><th class="ocultar-movil">Descripción</th><th class="ocultar-movil">Cuenta</th><th>Ceco</th><th>Línea</th><th class="d">Importe</th></tr></thead>
+    <tbody>{% for a in detalle %}
+      <tr><td>{{ a|clave:'Fecha de registro'|date:'d/m/Y' }}</td><td class="ocultar-movil">{{ a|clave:'Fecha de emisión'|date:'d/m/Y' }}</td>
+        {% if opciones_hotel|length > 1 and seleccion == 'GRUPO' %}<td>{{ a.Hotel }}</td>{% endif %}
+        <td>{{ a|clave:'Nº documento' }}<div class="nota">{{ a|clave:'Nº documento proveedor' }}</div></td><td>{{ a.Proveedor }}</td>
+        <td class="ocultar-movil">{{ a|clave:'Descripción' }}</td><td class="ocultar-movil">{{ a|clave:'Cuenta contable' }}</td><td>{{ a.Ceco }}</td>
+        <td>{{ a|clave:'Línea del informe' }}</td><td class="d">{{ a|clave:'Importe sin IVA'|euros:2 }}</td></tr>
+    {% empty %}<tr><td colspan="10" class="vacio">Ningún apunte con estos filtros.</td></tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

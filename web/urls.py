@@ -11,6 +11,8 @@ urlpatterns = [
     path('subir/', views.subir, name='subir'),
     path('cargas/', views.cargas, name='cargas'),
     path('interes/', views.interes, name='interes'),
+    path('apuntes/', views.apuntes, name='apuntes'),
+    path('exportar/<slug:que>/', views.exportar, name='exportar'),
     path('entrar/', auth_views.LoginView.as_view(), name='login'),
     path('salir/', auth_views.LogoutView.as_view(), name='logout'),
     path('equipo/', admin.site.urls),

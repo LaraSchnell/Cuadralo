@@ -169,3 +169,20 @@ button.principal { margin-top: 18px; background: var(--marino); color: #fff; bor
   .ocultar-movil { display: none; }
   .barra-h { grid-template-columns: 110px 1fr 56px; }
 }
+
+/* ---------- apuntes y exportación ---------- */
+.rejilla-filtros { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 14px; }
+.rejilla-filtros label { font-size: 12px; color: var(--suave); font-weight: 500; margin: 6px 0 4px; }
+.rejilla-filtros select, .rejilla-filtros input { max-width: none; padding: 7px 8px; font-size: 13px; }
+input[type=date] { width: 100%; padding: 7px 8px; border: 1px solid var(--linea); border-radius: 8px; font-size: 13px; font-family: inherit; background: #fff; }
+.acciones-filtros { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; font-size: 13px; }
+.boton { text-decoration: none; display: inline-block; }
+.boton.secundario { background: #fff; color: var(--marino); border: 1px solid var(--linea); }
+.boton.excel { background: #fff; color: #065F46; border: 1px solid #A7F3D0; margin-left: auto; }
+.boton.excel::before { content: "↓ "; }
+.boton.pequeno { padding: 4px 10px; font-size: 12px; font-weight: 600; }
+.cabecera-tabla { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.cabecera-tabla h2 { margin: 0; }
+.tabla-apuntes td { font-size: 12.5px; }
+@media (max-width: 1000px) { .rejilla-filtros { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .boton.excel { margin-left: 0; } }

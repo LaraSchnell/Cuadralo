@@ -345,7 +345,7 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes'):
         ap = apuntes[(apuntes['Id hotel'] == d['Id hotel']) & (apuntes['Línea'] == d['Línea'])]
         ap = ap.reindex(ap['Importe sin IVA'].abs().sort_values(ascending=False).index).head(8)
         fila = {
-            'hotel': nombre(d['Id hotel']), 'linea': d['Línea'], 'ingreso': d['Ingreso'],
+            'hotel': nombre(d['Id hotel']), 'hotel_id': d['Id hotel'], 'linea': d['Línea'], 'ingreso': d['Ingreso'],
             'real': eur(d['Real']), 'ppto': eur(d['Presupuesto']) if d['Presupuesto'] is not None else '—',
             'aa': eur(d['Año anterior']) if d['Año anterior'] is not None else '—',
             'dif': con_signo(d['Dif ref'], 0, '€'),

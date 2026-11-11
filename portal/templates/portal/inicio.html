@@ -20,6 +20,7 @@
     <button type="button" class="{% if modo == 'acumulado' %}activo{% endif %}" onclick="periodo('acumulado')">Acumulado del año</button>
   </span>
   <span class="suave">Compara con presupuesto y año anterior</span>
+  <a class="boton excel pequeno" href="{% url 'exportar' 'informe' %}?{{ filtros_url }}">Informe completo en Excel</a>
   {% if empresa.datos_ficticios %}<span class="sello">Datos ficticios · {{ empresa.nombre }}</span>{% endif %}
 </form>
 {% endif %}{% endblock %}
@@ -37,7 +38,7 @@
 <!-- ===================== 1. RESUMEN ===================== -->
 <section class="pagina" id="resumen">
   <h1>¿Cómo ha ido {% if modo == 'mes' %}el mes{% else %}el año{% endif %}?</h1>
-  <p class="subtitulo">{{ i.titulo }} · {{ i.periodo_texto }} · {{ i.habitaciones }} habitaciones.</p>
+  <div class="cabecera-tabla"><p class="subtitulo" style="margin:0">{{ i.titulo }} · {{ i.periodo_texto }} · {{ i.habitaciones }} habitaciones.</p><a class="boton excel pequeno" href="{% url 'exportar' 'indicadores' %}?{{ filtros_url }}">Indicadores en Excel</a></div>
   <div class="rejilla r4">{% for t in i.tarjetas_portada %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>
 
   <div class="rejilla r21 mt">
@@ -95,7 +96,7 @@
       <div id="g-adr"></div></div>
   </div>
   <div class="tarjeta mt tabla-scroll">
-    <h2>¿Qué línea de ingreso se aleja del presupuesto?</h2>
+    <div class="cabecera-tabla"><h2>¿Qué línea de ingreso se aleja del presupuesto?</h2><a class="boton excel pequeno" href="{% url 'exportar' 'ingresos' %}?{{ filtros_url }}">Exportar a Excel</a></div>
     <table>
       <thead><tr><th>Línea</th><th class="d">Real</th><th class="d">Presupuesto</th><th class="d">Var. €</th><th class="d">Var. %</th><th class="d ocultar-movil">Año anterior</th></tr></thead>
       <tbody>{% for f in i.ingresos %}
@@ -112,7 +113,7 @@
 <section class="pagina" id="cuadre">
   <h1>¿Cuadra lo que dice el operador con la contabilidad?</h1>
   <p class="subtitulo">{{ i.titulo }} · {{ mes_texto }}. Línea a línea, con la causa de cada diferencia.</p>
-  <div class="tarjeta tabla-scroll"><h2>Ingresos: operador frente a contabilidad</h2>
+  <div class="tarjeta tabla-scroll"><div class="cabecera-tabla"><h2>Ingresos: operador frente a contabilidad</h2><a class="boton excel pequeno" href="{% url 'exportar' 'cuadre' %}?{{ filtros_url }}">Exportar a Excel</a></div>
     <table>
       <thead><tr>{% if i.es_grupo %}<th>Hotel</th>{% endif %}<th>Línea</th><th class="d">Operador</th><th class="d">Contabilidad</th><th class="d">Diferencia</th><th>Estado</th><th>Causa</th></tr></thead>
       <tbody>{% for f in i.cuadre %}{% if not i.es_grupo or not f.cuadra %}
@@ -124,7 +125,7 @@
     </table>
     {% if i.es_grupo %}<p class="nota">En la vista de grupo solo se listan las líneas que no cuadran ({{ i.diferencias|length }} de {{ i.cuadre|length }}). Elige un hotel para verlas todas.</p>{% endif %}
   </div>
-  <div class="tarjeta tabla-scroll"><h2>¿Los ratios del operador están bien calculados?</h2>
+  <div class="tarjeta tabla-scroll"><div class="cabecera-tabla"><h2>¿Los ratios del operador están bien calculados?</h2><a class="boton excel pequeno" href="{% url 'exportar' 'ratios' %}?{{ filtros_url }}">Exportar a Excel</a></div>
     <table>
       <thead><tr>{% if i.es_grupo %}<th>Hotel</th>{% endif %}<th>Ratio</th><th class="d">Operador</th><th class="d">Recalculado</th><th class="d">Diferencia</th><th>Estado</th><th class="ocultar-movil">Nota</th></tr></thead>
       <tbody>{% for x in i.ratios %}{% if not i.es_grupo or not x.correcto %}
@@ -145,7 +146,7 @@
   <div class="tarjeta mt"><h2>De los ingresos al GOP2</h2><div id="g-cascada"></div>
     <div class="nota">Miles de €. Ajustes = honorarios del operador y reserva FF&amp;E. Bajo AGOP = tributos, amortizaciones y gastos financieros.</div></div>
   <div class="rejilla r2 mt">
-    <div class="tarjeta tabla-scroll"><h2>Cuenta de resultados <button type="button" class="boton" style="float:right;padding:4px 10px;font-size:12px" onclick="this.closest('.tarjeta').querySelector('table').classList.toggle('abierta')">Ver detalle</button></h2>
+    <div class="tarjeta tabla-scroll"><div class="cabecera-tabla"><h2>Cuenta de resultados</h2><span><button type="button" class="boton pequeno" onclick="this.closest('.tarjeta').querySelector('table').classList.toggle('abierta')">Ver detalle</button> <a class="boton excel pequeno" href="{% url 'exportar' 'cuenta' %}?{{ filtros_url }}">Exportar a Excel</a></span></div>
       <table>
         <thead><tr><th>Línea</th><th class="d">Real</th><th class="d">Ppto</th><th class="d">Var. %</th><th class="d ocultar-movil">Año ant.</th></tr></thead>
         <tbody>{% for f in i.pyg %}
@@ -167,7 +168,7 @@
 <!-- ===================== 5. DESVIACIONES ===================== -->
 <section class="pagina" id="desviaciones">
   <h1>¿Qué se ha desviado y por qué?</h1>
-  <p class="subtitulo">{{ i.titulo }} · {{ mes_texto }}. Líneas que se mueven más de un 5 % y más de 500 € frente al presupuesto o al año anterior. Pulsa una fila para ver sus apuntes.</p>
+  <div class="cabecera-tabla"><p class="subtitulo" style="margin:0">{{ i.titulo }} · {{ mes_texto }}. Líneas que se mueven más de un 5 % y más de 500 € frente al presupuesto o al año anterior. Pulsa una fila para ver sus apuntes.</p><a class="boton excel pequeno" href="{% url 'exportar' 'desviaciones' %}?{{ filtros_url }}">Exportar a Excel</a></div>
   <div class="tarjeta tabla-scroll">
     <table>
       <thead><tr>{% if i.es_grupo %}<th>Hotel</th>{% endif %}<th>Línea</th><th class="d">Diferencia</th><th class="d">Var.</th><th>Causa</th><th class="ocultar-movil">Proveedor · documento</th></tr></thead>
@@ -183,6 +184,7 @@
         <tr class="apuntes" id="ap-{{ forloop.counter }}" style="display:none"><td colspan="6">
           <b>Real {{ d.real }} · presupuesto {{ d.ppto }} · año anterior {{ d.aa }}</b><br>
           {% for a in d.apuntes %}{{ a.fecha }} · {{ a.doc }} · {{ a.proveedor }} · {{ a.descripcion }} · {{ a.importe }}<br>{% empty %}Sin apuntes contables en esta línea este mes.{% endfor %}
+          <a href="{% url 'apuntes' %}?hotel={{ d.hotel_id }}&amp;mes={{ mes|date:'Y-m' }}&amp;linea={{ d.linea|urlencode }}&amp;agrupar=proveedor">Ver todos los apuntes de esta línea →</a>
         </td></tr>
       {% empty %}<tr><td colspan="6" class="vacio">Ninguna línea supera los umbrales este mes.</td></tr>{% endfor %}</tbody>
     </table>
@@ -197,7 +199,7 @@
 {% if i.es_grupo %}
 <section class="pagina" id="comparativa">
   <h1>¿Qué hotel lo hace mejor?</h1>
-  <p class="subtitulo">Grupo · {{ i.periodo_texto }}. Mismos KPIs por hotel. Elige un hotel arriba para ver su informe.</p>
+  <div class="cabecera-tabla"><p class="subtitulo" style="margin:0">Grupo · {{ i.periodo_texto }}. Mismos KPIs por hotel. Elige un hotel arriba para ver su informe.</p><span><a class="boton excel pequeno" href="{% url 'exportar' 'comparativa' %}?{{ filtros_url }}">Exportar a Excel</a> <a class="boton excel pequeno" href="{% url 'exportar' 'coste_rn' %}?{{ filtros_url }}">Coste por room night</a></span></div>
   <div class="tarjeta tabla-scroll">
     <table>
       <thead><tr><th>Hotel</th><th class="d">Ingresos</th><th class="d">GOP</th><th class="d">% GOP</th><th class="d">GOP vs ppto</th><th class="d">Ocupación</th><th class="d">ADR</th><th class="d">RevPAR</th><th class="d">Labor cost</th><th class="d">CPOR</th><th class="d">No cuadra</th><th class="d">Desviaciones</th></tr></thead>

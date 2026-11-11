@@ -27,6 +27,7 @@
       <a class="enlace opcional" data-p="personas" href="{{ url_inicio }}?p=personas">Personas<span class="etiqueta">Opcional</span></a>
       <a class="enlace opcional" data-p="operaciones" href="{{ url_inicio }}?p=operaciones">Operaciones<span class="etiqueta">Opcional</span></a>
       <div class="grupo-nav">Datos</div>
+      <a class="enlace" href="{% url 'apuntes' %}">Apuntes y proveedores</a>
       {% if perfil.puede_subir %}<a class="enlace" href="{% url 'subir' %}">Subir archivos</a>{% endif %}
       <a class="enlace" href="{% url 'cargas' %}">Historial de cargas</a>
       <div class="pie-nav">

@@ -11,7 +11,7 @@ def _es(numero, decimales):
 
 @register.filter
 def euros(valor, decimales=0):
-    if valor is None:
+    if valor is None or valor != valor:
         return '—'
     return f'{_es(float(valor), int(decimales))} €'
 
@@ -21,3 +21,12 @@ def pct(valor, decimales=1):
     if valor is None or valor != valor:
         return '—'
     return f'{_es(float(valor) * 100, int(decimales))} %'
+
+
+@register.filter
+def clave(diccionario, nombre):
+    """Lee una columna con espacios o tildes: {{ fila|clave:'Año anterior' }}."""
+    try:
+        return diccionario.get(nombre)
+    except AttributeError:
+        return None
