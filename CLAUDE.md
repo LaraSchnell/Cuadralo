@@ -21,8 +21,8 @@ datos_origen/            Excels ficticios de origen (operador, business_central,
 configuracion_grupo_demo.xlsx   hoteles, cecos, plan_cuentas, conceptos_pms, estructura_informe, parametros, casos_plantados
 cuadralo/
   normalizar.py          origen → modelo común (paso 1, hecho)
-  calculos.py            KPIs, cuadre, comprobación de ratios, cuenta de resultados hasta GOP2, labor cost
-  reglas.py              motor de desviaciones (duplicada, otro mes, proveedor nuevo, subida de precio, factura que falta, falsa alarma)
+  calculos.py            cuenta de resultados hasta GOP2, actividad (ocupación, ADR, RevPAR)
+  reglas.py              cuadre, ratios del operador, alertas de facturas, comparativa entre hoteles y desviaciones con su causa
   informe.py             rellena las plantillas HTML con los resultados
   plantillas/            HTML + Chart.js (6 páginas de grupo + una por hotel)
 web/                     proyecto Django (login, empresa, subida, ver informe)
@@ -50,4 +50,4 @@ tests/                   pytest: cifras de octubre 2026 y los 11 casos sembrados
 Cuadre esperado (operador − BC): Mar Minibar +7.296,89; Born Minibar −7.296,89; Gracia Alojamiento +1.180,00; Sitges Eventos +1.550,00.
 
 ## Stack
-Python 3.12, pandas, openpyxl, Django, Azure App Service, Azure SQL (oferta gratuita), Azure Blob Storage, Azure Key Vault, Azure OpenAI (zona UE), Chart.js. Todo en región UE.
+Python 3.12, pandas, openpyxl, Django, Azure App Service, Azure SQL Basic (unos 5 $/mes; la oferta gratuita no estaba disponible para esta cuenta), región Spain Central, Azure Blob Storage, Azure Key Vault, Azure OpenAI (zona UE), Chart.js. Todo en región UE.

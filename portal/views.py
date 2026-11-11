@@ -3,10 +3,10 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render
 
-from cuadralo import calculos
+from cuadralo import calculos, reglas
 from .acceso import perfil_requerido
 from .models import Carga, Perfil
-from .procesar import datos_empresa, leer_configuracion, procesar_empresa, registrar_carga
+from .procesar import datos_empresa, leer_configuracion, presupuesto_empresa, procesar_empresa, registrar_carga
 
 MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
          'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -82,3 +82,47 @@ def subir(request):
 def cargas(request):
     lista = Carga.objects.filter(empresa=request.empresa).select_related('usuario')[:200]
     return render(request, 'portal/cargas.html', {'empresa': request.empresa, 'perfil': request.perfil, 'cargas': lista})
+
+
+def _registros(df, hoteles_visibles, nombres):
+    if df is None or not len(df):
+        return []
+    df = df[df['Id hotel'].isin(hoteles_visibles)].copy()
+    df['Hotel'] = df['Id hotel'].map(nombres)
+    return df.to_dict('records')
+
+
+@perfil_requerido
+def analisis(request):
+    """Cuadre con contabilidad, ratios del operador, alertas de facturas y desviaciones explicadas."""
+    empresa, perfil = request.empresa, request.perfil
+    mov, pms = datos_empresa(empresa)
+    contexto = {'empresa': empresa, 'perfil': perfil}
+    if len(mov) == 0 or len(pms) == 0:
+        return render(request, 'portal/analisis.html', contexto)
+    cfg = leer_configuracion(empresa)
+    pres = presupuesto_empresa(empresa)
+    m = calculos.asignar_lineas(mov, cfg)
+    pyg = calculos.cuenta_resultados(mov, cfg)
+    meses = sorted(set(pd.to_datetime(pms['Fecha'])) & set(pyg.index.get_level_values('Mes')), reverse=True)
+    pedido = request.GET.get('mes')
+    mes = pd.Timestamp(pedido + '-01') if pedido and pd.Timestamp(pedido + '-01') in meses else meses[0]
+    r = reglas.analizar_mes(m, pms, pres, pyg, cfg, mes)
+    nombres = cfg['hoteles'].set_index('Id hotel')['Hotel'].to_dict()
+    visibles = [perfil.hotel] if perfil.rol == Perfil.DIRECTOR_HOTEL else list(nombres)
+    cuadre = r['cuadre']
+    cuadre_vis = cuadre[cuadre['Id hotel'].isin(visibles)]
+    orden_causa = {'Sin causa': 0, 'Factura': 1, 'Cuadre': 2, 'Calendario': 3, 'Ingresos': 4, 'Actividad': 5}
+    desv = r['desviaciones']
+    if len(desv):
+        desv = desv.assign(_o=desv['Tipo de causa'].map(orden_causa)).sort_values(['_o', 'Id hotel', 'Línea'])
+    contexto.update({
+        'mes_texto': _mes_texto(mes), 'meses': [(x.strftime('%Y-%m'), _mes_texto(x)) for x in meses],
+        'cuadre_mal': _registros(cuadre_vis[~cuadre_vis['Cuadra']], visibles, nombres),
+        'cuadre_ok': int(cuadre_vis['Cuadra'].sum()), 'cuadre_total': len(cuadre_vis),
+        'ratios_mal': _registros(r['ratios'][~r['ratios']['Correcto']], visibles, nombres),
+        'alertas': _registros(r['alertas'], visibles, nombres),
+        'desviaciones': _registros(desv, visibles, nombres),
+        'version': r['version_reglas'],
+    })
+    return render(request, 'portal/analisis.html', contexto)

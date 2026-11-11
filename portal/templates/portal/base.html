@@ -12,7 +12,8 @@
       <a class="marca" href="{% url 'inicio' %}">Cuádralo<small>Control de gestión hotelero</small></a>
       {% if user.is_authenticated and perfil %}
       <nav>
-        <a href="{% url 'inicio' %}">Informe</a>
+        <a href="{% url 'inicio' %}">Resumen</a>
+        <a href="{% url 'analisis' %}">Cuadre y desviaciones</a>
         {% if perfil.puede_subir %}<a href="{% url 'subir' %}">Subir archivos</a>{% endif %}
         <a href="{% url 'cargas' %}">Historial de cargas</a>
       </nav>

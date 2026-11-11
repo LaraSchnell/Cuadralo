@@ -100,6 +100,8 @@ def datos_empresa(empresa):
             'num_documento': 'Nº documento', 'cuenta': 'Cuenta contable', 'descripcion': 'Descripción',
             'importe': 'Importe sin IVA', 'iva': 'IVA', 'proveedor': 'Proveedor', 'finca': 'Finca', 'ceco': 'Ceco'})
         mov['Importe sin IVA'] = mov['Importe sin IVA'].astype(float)
+        mov['Fecha de registro'] = pd.to_datetime(mov['Fecha de registro'])
+        mov['Fecha de emisión del documento'] = pd.to_datetime(mov['Fecha de emisión del documento'])
         mov['Ceco'] = mov['Ceco'].replace('', None)
     pms = pd.DataFrame(list(FilaOperador.objects.filter(empresa=empresa).values(
         'mes', 'hotel', 'concepto', 'medida', 'valor', 'linea_informe')))
@@ -107,4 +109,15 @@ def datos_empresa(empresa):
         pms = pms.rename(columns={'mes': 'Fecha', 'hotel': 'Id hotel', 'concepto': 'Concepto', 'medida': 'Medida',
                                   'valor': 'Valor', 'linea_informe': 'Línea del informe'})
         pms['Valor'] = pms['Valor'].astype(float)
+        pms['Fecha'] = pd.to_datetime(pms['Fecha'])
+        pms['Línea del informe'] = pms['Línea del informe'].replace('', None)
     return mov, pms
+
+
+def presupuesto_empresa(empresa):
+    pres = pd.DataFrame(list(FilaPresupuesto.objects.filter(empresa=empresa).values('mes', 'hotel', 'linea', 'tipo', 'importe')))
+    if len(pres):
+        pres = pres.rename(columns={'mes': 'Fecha', 'hotel': 'Id hotel', 'linea': 'Línea', 'tipo': 'Tipo', 'importe': 'Presupuesto'})
+        pres['Presupuesto'] = pres['Presupuesto'].astype(float)
+        pres['Fecha'] = pd.to_datetime(pres['Fecha'])
+    return pres

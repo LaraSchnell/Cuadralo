@@ -21,3 +21,9 @@ def pct(valor, decimales=1):
     if valor is None or valor != valor:
         return '—'
     return f'{_es(float(valor) * 100, int(decimales))} %'
+
+
+@register.filter
+def get(dic, clave):
+    """Lee una clave con espacios o símbolos: {{ fila|get:"Business Central" }}."""
+    return dic.get(clave) if hasattr(dic, 'get') else None

@@ -36,3 +36,4 @@ button.principal { margin-top: 18px; background: var(--marca); color: #fff; bord
 .login { max-width: 380px; margin: 60px auto; }
 .nota { color: var(--suave); font-size: 13px; }
 @media (max-width: 640px) { nav { order: 3; width: 100%; } h1 { font-size: 19px; } th, td { padding: 8px; } }
+.izq { text-align: left !important; }

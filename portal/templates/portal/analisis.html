@@ -1,0 +1,54 @@
+{% extends 'portal/base.html' %}{% load cifras %}
+{% block titulo %}Cuadre y desviaciones{% endblock %}
+{% block contenido %}
+<h1>Cuadre y desviaciones</h1>
+{% if meses %}
+<p class="subtitulo">{{ empresa.nombre }} · {{ mes_texto }}. Todo lo que aparece aquí sale de reglas fijas (versión {{ version }}), no de la IA.</p>
+<form class="selector" method="get">
+  <label for="mes" style="margin:0">Mes</label>
+  <select id="mes" name="mes" onchange="this.form.submit()">
+    {% for valor, texto in meses %}<option value="{{ valor }}" {% if texto == mes_texto %}selected{% endif %}>{{ texto }}</option>{% endfor %}
+  </select>
+</form>
+
+<div class="tarjeta">
+  <h2 style="font-size:17px;margin:0 0 4px">Cuadre operador ↔ contabilidad</h2>
+  <p class="nota">{{ cuadre_ok }} de {{ cuadre_total }} líneas de ingresos cuadran.</p>
+  {% if cuadre_mal %}<div class="tabla-scroll"><table>
+    <thead><tr><th>Hotel</th><th class="izq">Línea</th><th>Operador</th><th>Contabilidad</th><th>Diferencia</th><th class="izq">Causa</th></tr></thead>
+    <tbody>{% for c in cuadre_mal %}
+      <tr><td>{{ c.Hotel }}</td><td class="izq">{{ c.Línea }}</td><td>{{ c.Operador|euros:2 }}</td><td>{{ c|get:"Business Central"|euros:2 }}</td><td>{{ c.Diferencia|euros:2 }}</td>
+          <td style="white-space:normal;text-align:left"><strong>{{ c.Causa }}</strong><div class="nota">{{ c.Detalle }}</div></td></tr>
+    {% endfor %}</tbody></table></div>{% endif %}
+</div>
+
+<div class="tarjeta">
+  <h2 style="font-size:17px;margin:0 0 4px">Ratios del operador</h2>
+  {% if ratios_mal %}<div class="tabla-scroll"><table>
+    <thead><tr><th>Hotel</th><th class="izq">Ratio</th><th class="izq">Qué pasa</th></tr></thead>
+    <tbody>{% for q in ratios_mal %}<tr><td>{{ q.Hotel }}</td><td class="izq">{{ q.Ratio }}</td><td style="white-space:normal;text-align:left">{{ q.Detalle }}<div class="nota">Fórmula: {{ q|get:"Fórmula" }}</div></td></tr>{% endfor %}</tbody>
+  </table></div>{% else %}<p class="nota">Todos los ratios del operador coinciden con los recalculados.</p>{% endif %}
+</div>
+
+<div class="tarjeta">
+  <h2 style="font-size:17px;margin:0 0 4px">Alertas de facturas</h2>
+  {% if alertas %}<div class="tabla-scroll"><table>
+    <thead><tr><th>Hotel</th><th class="izq">Tipo</th><th class="izq">Línea</th><th class="izq">Explicación</th></tr></thead>
+    <tbody>{% for a in alertas %}<tr><td>{{ a.Hotel }}</td><td class="izq">{{ a.Tipo }}</td><td class="izq">{{ a.Línea }}</td><td style="white-space:normal;text-align:left">{{ a.Detalle }}</td></tr>{% endfor %}</tbody>
+  </table></div>{% else %}<p class="nota">Sin alertas este mes.</p>{% endif %}
+</div>
+
+<div class="tarjeta">
+  <h2 style="font-size:17px;margin:0 0 4px">Desviaciones</h2>
+  <p class="nota">Líneas que se mueven más del umbral frente al presupuesto o al año anterior. Primero las que no tienen causa.</p>
+  {% if desviaciones %}<div class="tabla-scroll"><table>
+    <thead><tr><th>Hotel</th><th class="izq">Línea</th><th class="izq">Frente a</th><th>Real</th><th>Referencia</th><th>Diferencia</th><th class="izq">Causa</th></tr></thead>
+    <tbody>{% for d in desviaciones %}<tr><td>{{ d.Hotel }}</td><td class="izq">{{ d.Línea }}</td><td class="izq">{{ d.Referencia }}</td><td>{{ d.Real|euros }}</td><td>{{ d|get:"Comparado con"|euros }}</td>
+      <td>{{ d.Diferencia|euros }}<div class="nota">{{ d|get:"Diferencia %"|pct }}</div></td>
+      <td style="white-space:normal;text-align:left"><span class="estado {% if d|get:'Tipo de causa' == 'Sin causa' %}error{% elif d|get:'Tipo de causa' == 'Actividad' %}sustituida{% else %}ok{% endif %}">{{ d.Causa }}</span><div class="nota">{{ d|get:"Explicación" }}</div></td></tr>{% endfor %}</tbody>
+  </table></div>{% else %}<p class="nota">Ninguna línea supera los umbrales este mes.</p>{% endif %}
+</div>
+{% else %}
+<div class="tarjeta"><p>Todavía no hay datos de esta empresa.</p></div>
+{% endif %}
+{% endblock %}

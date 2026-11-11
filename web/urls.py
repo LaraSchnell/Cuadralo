@@ -8,6 +8,7 @@ admin.site.site_header = 'Cuádralo · administración interna'
 
 urlpatterns = [
     path('', views.inicio, name='inicio'),
+    path('analisis/', views.analisis, name='analisis'),
     path('subir/', views.subir, name='subir'),
     path('cargas/', views.cargas, name='cargas'),
     path('entrar/', auth_views.LoginView.as_view(), name='login'),

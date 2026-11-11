@@ -96,3 +96,20 @@ def test_archivo_con_columna_desconocida_se_rechaza_con_motivo(client, demo, tmp
     with open(malo, 'rb') as f:
         r = client.post('/subir/', {'tipo': 'operador', 'archivos': [f]}, follow=True)
     assert 'columnas sin mapear' in r.content.decode()
+
+
+def test_pagina_de_cuadre_y_desviaciones_muestra_los_casos_de_octubre(client, demo):
+    _entrar(client, 'contable.demo', 'clave-contable-123')
+    _subir_octubre(client)
+    html = client.get('/analisis/?mes=2026-10').content.decode()
+    for texto in ['Ingreso contabilizado en otra finca', 'Abono no reportado por el operador', 'Ingreso sin contabilizar',
+                  'El ADR reportado', 'captación sobre habitaciones', 'Factura duplicada', 'Factura en otro mes',
+                  'Proveedor nuevo', 'Subida de precio', 'Falta una factura', 'Coste estructural alto',
+                  'Makro Autoservicio Mayorista', 'Calderas Barcelona SL', 'Clean Services Catalunya']:
+        assert texto in html, texto
+
+
+def test_aislamiento_en_la_pagina_de_analisis(client, demo):
+    _entrar(client, 'usuario.prueba', 'clave-prueba-123')
+    html = client.get('/analisis/').content.decode()
+    assert 'Hotel Mar' not in html and 'Makro' not in html
