@@ -64,13 +64,18 @@ class Command(BaseCommand):
             self.cargar(empresas['grupo-demo'], opciones['hasta'])
 
     def cargar(self, empresa, hasta):
-        if empresa.cargas.exists():
+        # Solo se cargan los tipos de archivo que la empresa aún no tiene (p. ej. las reservas, que llegaron después).
+        ya = set(empresa.cargas.values_list('tipo', flat=True))
+        faltan = {t for t, _ in Carga.TIPOS} - ya
+        if not faltan:
             self.stdout.write('El Grupo Demo ya tiene datos cargados: no se vuelven a cargar.')
             return
         contable = get_user_model().objects.get(username='contable.demo')
         base = Path(settings.DATOS_DEMO)
         for tipo, carpeta in [(Carga.OPERADOR, 'operador'), (Carga.BUSINESS_CENTRAL, 'business_central'),
-                              (Carga.PRESUPUESTO, 'presupuesto')]:
+                              (Carga.PRESUPUESTO, 'presupuesto'), (Carga.RESERVAS, 'reservas')]:
+            if tipo not in faltan:
+                continue
             for ruta in sorted((base / carpeta).glob('*.xlsx')):
                 meses = re.findall(r'(20\d\d-\d\d)', ruta.name)
                 if tipo != Carga.PRESUPUESTO and meses and meses[-1] > hasta:

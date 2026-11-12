@@ -244,10 +244,54 @@ TABLAS = {
 }
 
 
+def _por_meses(funcion, meses):
+    """Une la tabla de cada mes (cuadre, ratios, desviaciones…) con una columna Mes delante."""
+    partes, fmt, funciones, inicio = [], {}, [], 0
+    for m in meses:
+        salida = funcion(m)
+        df, fmt = salida[0], salida[1]
+        if len(df):
+            df.insert(0, 'Mes', mes_texto(m))
+            partes.append(df)
+            if len(salida) > 2:
+                funciones.append((inicio, len(df), salida[2]))
+            inicio += len(df)
+    df = pd.concat(partes, ignore_index=True) if partes else pd.DataFrame()
+    if not funciones:
+        return df, fmt
+
+    def formato(i, col):  # cada fila usa el formato de la tabla de su mes
+        for ini, n, f in funciones:
+            if ini <= i < ini + n:
+                return None if col == 'Mes' else f(i - ini, col)
+        return None
+    return df, fmt, formato
+
+
 def hojas_informe(datos, que, hoteles, visibles, mes, modo):
-    """Devuelve la lista de hojas para `que` (una tabla o 'informe' = todas)."""
+    """Devuelve la lista de hojas para `que` (una tabla o 'informe' = todas).
+
+    mes puede ser un mes o una lista de meses (los que el usuario marca en el filtro): las tablas de
+    totales suman esos meses y las de cada mes (cuadre, ratios, desviaciones) traen una fila por mes.
+    """
     es_grupo = len(hoteles) > 1
-    p_txt = mes_texto(mes) if modo == 'mes' else f'enero-{MESES[mes.month - 1]} {mes.year}'
+    meses = _periodo(mes, modo)
+    if isinstance(mes, (list, tuple)):
+        from .informe import texto_periodo
+        p_txt = texto_periodo(meses)
+        ultimo = meses[-1]
+        cuadre = lambda: _por_meses(lambda m: tabla_cuadre(datos, hoteles, m, visibles), meses)
+        ratios = lambda: _por_meses(lambda m: tabla_ratios(datos, hoteles, m), meses)
+        desv = lambda: _por_meses(lambda m: tabla_desviaciones(datos, hoteles, m, visibles), meses)
+        mes, modo = list(meses), 'lista'
+        m_txt = p_txt
+    else:
+        p_txt = mes_texto(mes) if modo == 'mes' else f'enero-{MESES[mes.month - 1]} {mes.year}'
+        ultimo = mes
+        cuadre = lambda: tabla_cuadre(datos, hoteles, mes, visibles)
+        ratios = lambda: tabla_ratios(datos, hoteles, mes)
+        desv = lambda: tabla_desviaciones(datos, hoteles, mes, visibles)
+        m_txt = mes_texto(mes)
 
     def una(clave):
         if clave == 'indicadores':
@@ -257,15 +301,15 @@ def hojas_informe(datos, que, hoteles, visibles, mes, modo):
         if clave == 'cuenta':
             return ('Cuenta de resultados', f'Cuenta de resultados hasta GOP2 · {p_txt}', *tabla_pyg(datos, hoteles, mes, modo))
         if clave == 'cuadre':
-            return ('Cuadre', f'Cuadre operador–contabilidad · {mes_texto(mes)}', *tabla_cuadre(datos, hoteles, mes, visibles))
+            return ('Cuadre', f'Cuadre operador–contabilidad · {m_txt}', *cuadre())
         if clave == 'ratios':
-            return ('Ratios', f'Ratios del operador · {mes_texto(mes)}', *tabla_ratios(datos, hoteles, mes))
+            return ('Ratios', f'Ratios del operador · {m_txt}', *ratios())
         if clave == 'desviaciones':
-            return ('Desviaciones', f'Desviaciones y causas · {mes_texto(mes)}', *tabla_desviaciones(datos, hoteles, mes, visibles))
+            return ('Desviaciones', f'Desviaciones y causas · {m_txt}', *desv())
         if clave == 'comparativa':
             return ('Comparativa', f'Comparativa entre hoteles · {p_txt}', *tabla_comparativa(datos, hoteles, mes, modo))
         if clave == 'coste_rn':
-            return ('Coste por room night', f'Coste por room night · {mes_texto(mes)}', *tabla_coste_rn(datos, hoteles, mes))
+            return ('Coste por room night', f'Coste por room night · {mes_texto(ultimo)}', *tabla_coste_rn(datos, hoteles, ultimo))
         raise KeyError(clave)
 
     if que == 'informe':

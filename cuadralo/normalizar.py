@@ -1,6 +1,6 @@
 """Cuádralo · normalizador.
 
-Convierte los Excels de origen (informe del operador, movimientos de Business Central y presupuesto)
+Convierte los Excels de origen (informe del operador, movimientos de Business Central, presupuesto y reservas)
 en el modelo común descrito en 07_estructura_datos.
 
 Cada función recibe una lista de archivos: rutas o archivos abiertos (lo que llega desde la web).
@@ -127,6 +127,69 @@ def normalizar_presupuesto(archivos, cfg):
     return pd.DataFrame(filas)
 
 
+# Reservas (informe de reservas o API de Mews). Estados de Mews que cuentan como estancia y como cancelación.
+ESTADOS_ESTANCIA = {'Processed', 'Started', 'Confirmed'}
+ESTADOS_CANCELADA = {'Canceled'}
+CAMPOS_RESERVA_OBLIGATORIOS = ['Hotel', 'Nº reserva', 'Estado', 'Origen', 'Llegada', 'Salida', 'Ingresos alojamiento']
+
+
+def _canal_clave(origen, detalle, agencia):
+    if agencia:
+        return agencia
+    return f'{origen} · {detalle}' if detalle else origen
+
+
+def normalizar_reservas(archivos, cfg):
+    """Reservas → una fila por reserva con canal, segmento, noches, personas e ingresos. Sin nombres de huéspedes.
+
+    Las columnas se traducen con la hoja columnas_reservas y el canal con la hoja canales de la configuración:
+    si llega un canal que no está en la configuración, la carga se para y avisa (igual que con el operador).
+    """
+    if not archivos:
+        return pd.DataFrame()
+    mapa = dict(zip(cfg['columnas_reservas']['Columna de Mews'], cfg['columnas_reservas']['Campo']))
+    canales = cfg['canales'].set_index('Valor en Mews')
+    nombre2id = dict(zip(cfg['hoteles']['Hotel'], cfg['hoteles']['Id hotel']))
+    partes = []
+    for archivo in archivos:
+        df = pd.read_excel(archivo, engine=MOTOR_EXCEL).rename(columns=mapa)
+        faltan = [c for c in CAMPOS_RESERVA_OBLIGATORIOS if c not in df.columns]
+        if faltan:
+            raise ErrorDeCarga(f'{_nombre(archivo)}: faltan las columnas {faltan} (revisa la hoja columnas_reservas).')
+        hoteles = set(df['Hotel']) - set(nombre2id)
+        if hoteles:
+            raise ErrorDeCarga(f'{_nombre(archivo)}: hoteles desconocidos {sorted(hoteles)}.')
+        partes.append(df)
+    df = pd.concat(partes, ignore_index=True)
+    texto = lambda col: df[col].fillna('').astype(str).str.strip() if col in df.columns else pd.Series('', index=df.index)
+    origen, detalle, agencia = texto('Origen'), texto('Detalle origen'), texto('Agencia')
+    clave = [_canal_clave(o, d, a) for o, d, a in zip(origen, detalle, agencia)]
+    desconocidos = sorted(set(clave) - set(canales.index))
+    if desconocidos:
+        raise ErrorDeCarga(f'Canales de reserva sin configurar en la hoja canales: {desconocidos}.')
+    llegada = pd.to_datetime(df['Llegada']).dt.normalize()
+    salida = pd.to_datetime(df['Salida']).dt.normalize()
+    creada = pd.to_datetime(df['Fecha de creación']) if 'Fecha de creación' in df.columns else pd.Series(pd.NaT, index=df.index)
+    estado = texto('Estado')
+    num = lambda col: pd.to_numeric(df[col], errors='coerce').fillna(0) if col in df.columns else pd.Series(0, index=df.index)
+    adultos, ninos = num('Adultos').astype(int), num('Niños').astype(int)
+    out = pd.DataFrame({
+        'Id hotel': df['Hotel'].map(nombre2id), 'Nº reserva': texto('Nº reserva'), 'Estado': estado,
+        'Estancia': estado.isin(ESTADOS_ESTANCIA), 'Cancelada': estado.isin(ESTADOS_CANCELADA),
+        'Origen': origen, 'Detalle origen': detalle, 'Agencia': agencia,
+        'Canal': [canales.loc[k, 'Canal'] for k in clave], 'Tipo de canal': [canales.loc[k, 'Tipo de canal'] for k in clave],
+        'Segmento': texto('Segmento'), 'Tarifa': texto('Tarifa'), 'Tipo de habitación': texto('Tipo de habitación'),
+        'Fecha de creación': creada,
+        'Fecha de cancelación': pd.to_datetime(df['Fecha de cancelación']) if 'Fecha de cancelación' in df.columns else pd.NaT,
+        'Llegada': llegada, 'Salida': salida, 'Noches': (salida - llegada).dt.days.clip(lower=0),
+        'Adultos': adultos, 'Niños': ninos, 'Personas': adultos + ninos,
+        'Nacionalidad': texto('Nacionalidad'), 'Motivo': texto('Motivo'),
+        'Ingresos alojamiento': num('Ingresos alojamiento').astype(float).round(2),
+        'Antelación (días)': (llegada - creada.dt.normalize()).dt.days,
+    })
+    return out
+
+
 def archivos_de(carpeta, sub):
     return sorted(glob.glob(os.path.join(carpeta, sub, '*.xlsx')))
 
@@ -138,4 +201,5 @@ if __name__ == '__main__':
         normalizar_bc(archivos_de(carpeta, 'business_central')).to_excel(w, sheet_name='mov_contabilidad', index=False)
         normalizar_operador(archivos_de(carpeta, 'operador'), cfg).to_excel(w, sheet_name='pms', index=False)
         normalizar_presupuesto(archivos_de(carpeta, 'presupuesto'), cfg).to_excel(w, sheet_name='presupuesto', index=False)
+        normalizar_reservas(archivos_de(carpeta, 'reservas'), cfg).to_excel(w, sheet_name='reservas', index=False)
     print('Normalizado en', salida)

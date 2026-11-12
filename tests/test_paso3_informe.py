@@ -150,7 +150,7 @@ def test_contable_ve_todas_las_paginas(client, demo):  # noqa: F811
     _entrar(client, 'contable.demo', 'clave-contable-123')
     _subir_octubre(client)
     html = client.get('/?mes=2026-10').content.decode()
-    for texto in ['¿Cómo ha ido el mes?', '¿Cuadra lo que dice el operador con la contabilidad?',
+    for texto in ['¿Cómo ha ido el periodo?', '¿Cuadra lo que dice el operador con la contabilidad?',
                   '¿Cuánto ganamos y dónde se va el dinero?', '¿Qué se ha desviado y por qué?', '¿Qué hotel lo hace mejor?',
                   'Calderas Barcelona SL', 'Abono AB-3413', 'Lavandería · Hotel Born', 'Datos ficticios']:
         assert texto in html, texto

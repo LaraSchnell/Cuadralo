@@ -168,12 +168,12 @@ def _causas_gasto(apuntes_mes, historico, h, linea, mes, act):
     return causas
 
 
-def desviaciones(mov, det_real, det_ppto, act, cuadre, cfg, hoteles, mes):
+def desviaciones(mov, det_real, det_ppto, act, cuadre, cfg, hoteles, mes, hist=None):
     """Desviaciones de un mes para los hoteles indicados, con su causa. Una fila por hotel y línea."""
     pct = float(parametro(cfg, 'umbral_desviacion_pct'))
     eur = float(parametro(cfg, 'umbral_desviacion_eur'))
     bloques, variables = _bloques(cfg), _variables(cfg)
-    hist = asignar_lineas(mov, cfg)
+    hist = asignar_lineas(mov, cfg) if hist is None else hist  # se puede pasar ya calculado
     aa = mes - pd.DateOffset(months=12)
     filas = []
     for h in hoteles:

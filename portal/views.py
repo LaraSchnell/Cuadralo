@@ -1,10 +1,15 @@
+import copy
+import re
+
 import pandas as pd
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from urllib.parse import urlencode
 
 from django.http import Http404, HttpResponse, JsonResponse
+from django.db.models import Count, Max
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 
@@ -13,7 +18,8 @@ from cuadralo import calculos, informe
 from cuadralo import exportar as exportar_xlsx
 from .acceso import perfil_requerido
 from .models import Carga, InteresModulo, Perfil
-from .procesar import datos_empresa, leer_configuracion, presupuesto_empresa, procesar_empresa, registrar_carga
+from .procesar import (datos_empresa, leer_configuracion, presupuesto_empresa, procesar_empresa, registrar_carga,
+                       reservas_empresa)
 
 MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
          'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -23,62 +29,258 @@ def _mes_texto(ts):
     return f'{MESES[ts.month - 1]} {ts.year}'
 
 
+# Datos ya calculados de cada empresa, en memoria del proceso. Se rehacen solo cuando cambian sus cargas
+# o su configuración, así cada clic no vuelve a leer y calcular todo el histórico.
+_CACHE_DATOS = {}
+
+
+def _version(empresa):
+    v = Carga.objects.filter(empresa=empresa, estado='ok').aggregate(n=Count('id'), ultima=Max('id'))
+    return (v['n'], v['ultima'], empresa.configuracion.name)
+
+
+def obtener_datos(empresa):
+    version = _version(empresa)
+    guardado = _CACHE_DATOS.get(empresa.id)
+    if guardado and guardado[0] == version:
+        return guardado[1], guardado[2]
+    mov, pms = datos_empresa(empresa)
+    if len(mov) == 0 or len(pms) == 0:
+        return None, None
+    cfg = leer_configuracion(empresa)
+    datos = informe.Datos(mov, pms, presupuesto_empresa(empresa), cfg, reservas_empresa(empresa))
+    if not datos.meses:
+        return None, None
+    _CACHE_DATOS[empresa.id] = (version, datos, cfg)
+    return datos, cfg
+
+
+PAGINAS = [('resumen', 'Resumen'), ('ventas', 'Ventas y ocupación'), ('resultados', 'Cuenta de resultados'),
+           ('desviaciones', 'Desviaciones'), ('cuadre', 'Cuadre'), ('comparativa', 'Comparativa')]
+PAGINAS_DIRECTOR_HOTEL = {'resumen', 'ventas', 'resultados', 'desviaciones'}
+
+
+def paginas_de(perfil):
+    """Qué páginas del informe ve cada perfil. Dirección y contabilidad ven todo; el director de hotel, lo de su hotel."""
+    if perfil.rol == Perfil.DIRECTOR_HOTEL:
+        return [p for p in PAGINAS if p[0] in PAGINAS_DIRECTOR_HOTEL]
+    return PAGINAS
+
+
+def _resumir(valores):
+    if not valores:
+        return ''
+    return valores[0] if len(valores) == 1 else f'{valores[0]} y {len(valores) - 1} más'
+
+
 class Seleccion:
-    """Lo que el usuario está viendo: datos de su empresa, hoteles visibles, hotel elegido, mes y periodo.
+    """Lo que el usuario está viendo: datos de su empresa, hoteles, meses y filtros de ceco, proveedor y canal.
 
     Los hoteles visibles salen SOLO del perfil (un director de hotel ve solo el suyo); lo que llega por
-    la URL se valida contra esa lista y, si no encaja, se ignora.
+    la URL se valida contra esa lista y, si no encaja, se ignora. Igual con meses, cecos, proveedores y canales.
     """
 
     def __init__(self, request):
         empresa, perfil = request.empresa, request.perfil
+        g = request.GET
         self.datos = None
-        mov, pms = datos_empresa(empresa)
-        if len(mov) == 0 or len(pms) == 0:
-            return
-        cfg = leer_configuracion(empresa)
-        datos = informe.Datos(mov, pms, presupuesto_empresa(empresa), cfg)
-        if not datos.meses:
+        datos, cfg = obtener_datos(empresa)
+        if datos is None:
             return
         self.datos, self.cfg = datos, cfg
         self.visibles = list(cfg['hoteles']['Id hotel'])
         if perfil.rol == Perfil.DIRECTOR_HOTEL:
             self.visibles = [perfil.hotel]
+        # hoteles: varios a la vez; 'GRUPO' o nada = todos los visibles
+        pedidos = [h for h in g.getlist('hotel') if h in self.visibles]
+        self.hoteles = pedidos or list(self.visibles)
+        self.todos = len(self.hoteles) == len(self.visibles)
+        self.seleccion = 'GRUPO' if len(self.hoteles) > 1 else self.hoteles[0]
         self.opciones_hotel = ([('GRUPO', 'Todo el grupo')] if len(self.visibles) > 1 else []) + \
             [(h, datos.nombres[h]) for h in self.visibles]
-        self.seleccion = request.GET.get('hotel')
-        if self.seleccion not in dict(self.opciones_hotel):
-            self.seleccion = self.opciones_hotel[0][0]
-        self.hoteles = self.visibles if self.seleccion == 'GRUPO' else [self.seleccion]
-        try:
-            mes = pd.Timestamp(request.GET['mes'] + '-01') if request.GET.get('mes') else None
-        except ValueError:
-            mes = None
-        self.mes = mes if mes in datos.meses else datos.meses[0]
-        self.modo = 'acumulado' if request.GET.get('periodo') == 'acumulado' else 'mes'
+        # meses: varios a la vez (meses=AAAA-MM repetido). Compatibilidad: mes=AAAA-MM y periodo=acumulado
+        disponibles = set(datos.meses)
+        leer = lambda t: pd.Timestamp(t + '-01') if re.fullmatch(r'20\d\d-\d\d', t or '') else None
+        meses = sorted({m for m in (leer(t) for t in g.getlist('meses')) if m in disponibles})
+        if not meses:
+            mes = leer(g.get('mes', ''))
+            mes = mes if mes in disponibles else datos.meses[0]
+            meses = [m for m in informe._periodo(mes, 'acumulado') if m in disponibles] \
+                if g.get('periodo') == 'acumulado' else [mes]
+        self.meses = meses
+        self.mes = meses[-1]
+        self.modo = 'acumulado' if g.get('periodo') == 'acumulado' else 'mes'
+        # filtros de gastos y de reservas
+        a = datos.apuntes[datos.apuntes['Id hotel'].isin(self.visibles)]
+        self.opciones_ceco = sorted(set(a['Ceco'].replace('', '(sin ceco)')))
+        self.opciones_proveedor = sorted(set(a['Proveedor'].dropna()) - {''})
+        self.opciones_canal = sorted(set(datos.res['Canal'])) if datos.hay_reservas else []
+        self.ceco = [x for x in g.getlist('ceco') if x in self.opciones_ceco]
+        self.proveedor = [x for x in g.getlist('proveedor') if x in self.opciones_proveedor]
+        self.canal = [x for x in g.getlist('canal') if x in self.opciones_canal]
+
+    @property
+    def filtros(self):
+        return {'ceco': self.ceco, 'proveedor': self.proveedor, 'canal': self.canal}
+
+    def query(self, **cambios):
+        """La selección actual como parámetros de URL (para enlaces, exportar y las tablas de detalle)."""
+        partes = [('meses', f'{m:%Y-%m}') for m in self.meses]
+        if not self.todos:
+            partes += [('hotel', h) for h in self.hoteles]
+        partes += [('ceco', x) for x in self.ceco] + [('proveedor', x) for x in self.proveedor] + [('canal', x) for x in self.canal]
+        partes += list(cambios.items())
+        return urlencode(partes)
 
     def contexto(self):
-        return {'mes': self.mes, 'mes_texto': _mes_texto(self.mes), 'modo': self.modo, 'seleccion': self.seleccion,
-                'opciones_hotel': self.opciones_hotel,
-                'meses': [(m.strftime('%Y-%m'), _mes_texto(m)) for m in self.datos.meses]}
+        anios = {}
+        for m in sorted(self.datos.meses):
+            anios.setdefault(m.year, []).append({'id': f'{m:%Y-%m}', 'texto': informe.MESES[m.month - 1].capitalize(),
+                                                 'corto': informe.MESES_CORTOS[m.month - 1], 'sel': m in self.meses})
+        arbol = [{'anio': a, 'meses': ms, 'todos': all(x['sel'] for x in ms), 'alguno': any(x['sel'] for x in ms)}
+                 for a, ms in sorted(anios.items(), reverse=True)]
+        etiquetas = []
+        if not self.todos:
+            etiquetas += [{'tipo': 'hotel', 'texto': self.datos.nombres[h], 'quitar': self._sin('hotel', h)} for h in self.hoteles]
+        etiquetas += [{'tipo': 'ceco', 'texto': f'Ceco {x}', 'quitar': self._sin('ceco', x)} for x in self.ceco]
+        etiquetas += [{'tipo': 'proveedor', 'texto': x, 'quitar': self._sin('proveedor', x)} for x in self.proveedor]
+        etiquetas += [{'tipo': 'canal', 'texto': f'Canal {x}', 'quitar': self._sin('canal', x)} for x in self.canal]
+        return {'mes': self.mes, 'mes_texto': informe.mes_texto(self.mes), 'modo': self.modo, 'seleccion': self.seleccion,
+                'opciones_hotel': self.opciones_hotel, 'arbol_meses': arbol,
+                'meses_sel': [f'{m:%Y-%m}' for m in self.meses], 'periodo_texto': informe.texto_periodo(self.meses),
+                'f_hoteles': [{'valor': h, 'texto': self.datos.nombres[h], 'sel': h in self.hoteles and not self.todos}
+                              for h in self.visibles],
+                'f_cecos': [{'valor': x, 'texto': x, 'sel': x in self.ceco} for x in self.opciones_ceco],
+                'f_proveedores': [{'valor': x, 'texto': x, 'sel': x in self.proveedor} for x in self.opciones_proveedor],
+                'f_canales': [{'valor': x, 'texto': x, 'sel': x in self.canal} for x in self.opciones_canal],
+                'etiquetas_filtro': etiquetas, 'query': self.query(),
+                'txt_hotel': 'Todos' if self.todos else _resumir([self.datos.nombres[h] for h in self.hoteles]),
+                'txt_ceco': _resumir(self.ceco) or 'Todos', 'txt_proveedor': _resumir(self.proveedor) or 'Todos',
+                'txt_canal': _resumir(self.canal) or 'Todos',
+                'meses': [(f'{m:%Y-%m}', informe.mes_texto(m)) for m in self.datos.meses]}
+
+    def _sin(self, campo, valor):
+        copia = copy.copy(self)
+        if campo == 'hotel':
+            copia.hoteles = [h for h in self.hoteles if h != valor] or list(self.visibles)
+            copia.todos = len(copia.hoteles) == len(self.visibles)
+        else:
+            setattr(copia, campo, [x for x in getattr(self, campo) if x != valor])
+        return copia.query()
 
 
 @perfil_requerido
 def inicio(request):
     empresa = request.empresa
-    contexto = {'empresa': empresa, 'perfil': request.perfil, 'informe': None, 'meses': []}
+    contexto = {'empresa': empresa, 'perfil': request.perfil, 'informe': None, 'meses': [], 'paginas': paginas_de(request.perfil)}
     sel = Seleccion(request)
     if sel.datos is None:
         return render(request, 'portal/inicio.html', contexto)
-    contenido = informe.construir(sel.datos, sel.visibles, sel.seleccion, sel.mes, sel.modo)
+    contenido = informe.construir(sel.datos, sel.visibles, sel.hoteles, sel.meses, filtros=sel.filtros)
     ultima = Carga.objects.filter(empresa=empresa, estado='ok').order_by('-creada').first()
     contexto.update(sel.contexto())
+    visibles_p = {p for p, _ in contexto['paginas']}
+    pagina = request.GET.get('p', 'resumen')
     contexto.update({
-        'informe': contenido, 'ultima_carga': ultima, 'pagina': request.GET.get('p', 'resumen'),
-        'filtros_url': urlencode({'hotel': sel.seleccion, 'mes': sel.mes.strftime('%Y-%m'), 'periodo': sel.modo}),
+        'informe': contenido, 'ultima_carga': ultima, 'pagina': pagina if pagina in visibles_p or pagina in MODULOS else 'resumen',
+        'filtros_url': sel.query(), 'paginas_visibles': visibles_p,
         'intereses': set(InteresModulo.objects.filter(empresa=empresa, usuario=request.user).values_list('modulo', flat=True)),
     })
     return render(request, 'portal/inicio.html', contexto)
+
+
+MODULOS = {'reputacion', 'personas', 'operaciones'}
+MAX_FILAS_DETALLE = 300
+
+
+@perfil_requerido
+def detalle(request):
+    """Tabla de detalle de un clic en un gráfico o en una fila: de qué facturas o de qué reservas sale la cifra.
+
+    Respeta siempre la selección y los hoteles que el usuario puede ver; el resultado son filas ya calculadas.
+    """
+    sel = Seleccion(request)
+    if sel.datos is None:
+        raise Http404
+    g = request.GET
+    datos = sel.datos
+    hoteles = sel.hoteles
+    if g.get('hotel_sel') in sel.visibles:
+        hoteles = [g['hotel_sel']]
+    meses = sel.meses
+    if g.get('mes_sel'):
+        m = pd.Timestamp(g['mes_sel'] + '-01') if re.fullmatch(r'20\d\d-\d\d', g['mes_sel']) else None
+        if m not in datos.meses:
+            raise Http404
+        meses = [m]
+    nombre = lambda h: datos.nombres.get(h, h)
+    p_txt = informe.texto_periodo(meses)
+    donde = ', '.join(nombre(h) for h in hoteles) if len(hoteles) < len(sel.visibles) or len(sel.visibles) == 1 else 'todo el grupo'
+    tipo = g.get('tipo')
+    if tipo == 'facturas':
+        a = datos.apuntes_filtrados(sel.ceco, sel.proveedor)
+        a = a[a['Id hotel'].isin(hoteles) & a['Mes'].isin(meses)]
+        que = 'todas las líneas'
+        if g.get('linea'):
+            a = a[a['Línea'] == g['linea']]
+            que = g['linea']
+        elif g.get('bloque'):
+            a = a[a['Bloque'] == g['bloque']]
+            que = g['bloque']
+        a = a.reindex(a['Importe sin IVA'].abs().sort_values(ascending=False).index)
+        total = float(a['Importe sin IVA'].sum())
+        filas = [[f'{f:%d/%m/%Y}', nombre(h), doc, ext or '', prov, desc, linea, ceco or '(sin ceco)', informe.eur(imp, 2)]
+                 for f, h, doc, ext, prov, desc, linea, ceco, imp in zip(
+                     a['Fecha de registro'].head(MAX_FILAS_DETALLE), a['Id hotel'], a['Nº documento'], a['Nº documento externo'],
+                     a['Proveedor'], a['Descripción'], a['Línea'], a['Ceco'], a['Importe sin IVA'])]
+        explicacion = [f'{informe.num(len(a))} apuntes de Business Central suman {informe.eur(total, 2)}.',
+                       'Es la cifra de esta línea en la cuenta de resultados' + (' (con el filtro de ceco o proveedor aplicado).'
+                                                                                if sel.ceco or sel.proveedor else '.')]
+        return JsonResponse({'titulo': f'Facturas de {que} · {donde} · {p_txt}', 'explicacion': explicacion,
+                             'columnas': ['Fecha', 'Hotel', 'Nº documento', 'Nº factura proveedor', 'Proveedor', 'Descripción',
+                                          'Línea', 'Ceco', 'Importe sin IVA'],
+                             'numericas': [8], 'filas': filas, 'total_filas': len(a), 'max_filas': MAX_FILAS_DETALLE,
+                             'orden': 'las de mayor importe; el resto, en Excel',
+                             'exportar': reverse('apuntes') + '?' + sel.query(**({'linea': g['linea']} if g.get('linea') else {}))})
+    if tipo == 'reservas':
+        if not datos.hay_reservas:
+            return JsonResponse({'titulo': 'Sin reservas', 'explicacion': ['Todavía no se han cargado reservas del PMS.'],
+                                 'columnas': [], 'filas': [], 'total_filas': 0})
+        canal = [g['canal_sel']] if g.get('canal_sel') in sel.opciones_canal else sel.canal
+        m = datos.reservas_mes(hoteles, meses, canal)
+        if g.get('segmento'):
+            m = m[m['Segmento'] == g['segmento']]
+        if g.get('nacionalidad'):
+            m = m[m['Nacionalidad'] == g['nacionalidad']]
+        res = datos.res.drop_duplicates('Nº reserva').set_index('Nº reserva')
+        m = m.merge(res[['Llegada']], left_on='Nº reserva', right_index=True).sort_values(['Llegada', 'Id hotel'])
+        det = res.loc[m['Nº reserva']]
+        filas = [[num_r, nombre(h), canal_, seg, tarifa, f'{lleg:%d/%m/%Y}', f'{sal:%d/%m/%Y}', int(n), int(p), pais,
+                  informe.eur(ing, 2), f'{int(ant)} días' if ant == ant else '']
+                 for num_r, h, canal_, seg, tarifa, lleg, sal, n, p, pais, ing, ant in zip(
+                     m['Nº reserva'].head(MAX_FILAS_DETALLE), m['Id hotel'], m['Canal'], m['Segmento'], det['Tarifa'],
+                     det['Llegada'], det['Salida'], m['Noches'], det['Personas'], m['Nacionalidad'], m['Ingresos'],
+                     det['Antelación (días)'])]
+        noches, ingresos = float(m['Noches'].sum()), float(m['Ingresos'].sum())
+        habitaciones = int(datos.cfg['hoteles'].set_index('Id hotel').loc[hoteles, 'Habitaciones'].sum())
+        dias = sum(x.days_in_month for x in meses)
+        disponibles = habitaciones * dias
+        explicacion = [f'{informe.num(m["Nº reserva"].nunique())} reservas suman {informe.num(noches)} noches '
+                       f'y {informe.eur(ingresos, 2)} de alojamiento.',
+                       f'Ocupación = {informe.num(noches)} noches / ({habitaciones} habitaciones × {dias} días) = '
+                       f'{informe.pct(noches / disponibles if disponibles else None)}.'
+                       if not (canal or g.get('segmento') or g.get('nacionalidad')) else
+                       f'Supone el {informe.pct(noches / disponibles if disponibles else None)} de las habitaciones disponibles '
+                       f'({habitaciones} × {dias} días).',
+                       f'ADR = {informe.eur(ingresos, 2)} / {informe.num(noches)} noches = {informe.eur(ingresos / noches if noches else None, 2)}.']
+        filtro = ' · '.join(x for x in [', '.join(canal) if canal else '', g.get('segmento', ''), g.get('nacionalidad', '')] if x)
+        return JsonResponse({'titulo': f'Reservas · {donde} · {p_txt}' + (f' · {filtro}' if filtro else ''),
+                             'explicacion': explicacion,
+                             'columnas': ['Nº reserva', 'Hotel', 'Canal', 'Segmento', 'Tarifa', 'Llegada', 'Salida',
+                                          'Noches del periodo', 'Personas', 'País', 'Ingresos del periodo', 'Antelación'],
+                             'numericas': [7, 8, 10], 'filas': filas, 'total_filas': len(m), 'max_filas': MAX_FILAS_DETALLE,
+                             'orden': 'por fecha de llegada'})
+    raise Http404
 
 
 def _excel(contenido, nombre):
@@ -96,13 +298,13 @@ def exportar(request, que):
     if sel.datos is None:
         raise Http404
     try:
-        hojas = exportar_xlsx.hojas_informe(sel.datos, que, sel.hoteles, sel.visibles, sel.mes, sel.modo)
+        hojas = exportar_xlsx.hojas_informe(sel.datos, que, sel.hoteles, sel.visibles, sel.meses, 'lista')
     except KeyError:
         raise Http404
     titulo = 'Grupo' if len(sel.hoteles) > 1 else sel.datos.nombres[sel.hoteles[0]]
-    periodo = _mes_texto(sel.mes) if sel.modo == 'mes' else f'acumulado a {_mes_texto(sel.mes)}'
+    periodo = informe.texto_periodo(sel.meses)
     contenido = exportar_xlsx.libro(hojas, f'{request.empresa.nombre} · {titulo}', periodo, request.empresa.datos_ficticios)
-    nombre = f'Cuadralo_{que}_{slugify(titulo)}_{sel.mes:%Y-%m}{"_acumulado" if sel.modo == "acumulado" else ""}.xlsx'
+    nombre = f'Cuadralo_{que}_{slugify(titulo)}_{sel.meses[0]:%Y-%m}' + (f'_a_{sel.mes:%Y-%m}' if len(sel.meses) > 1 else '') + '.xlsx'
     return _excel(contenido, nombre)
 
 
@@ -114,7 +316,7 @@ def _filtros_apuntes(request, sel):
     except ValueError:
         desde = hasta = None
     if desde is None and hasta is None:  # por defecto, el mes elegido
-        desde = sel.mes
+        desde = sel.meses[0]
         hasta = sel.mes + pd.offsets.MonthEnd(0)
     try:
         importe_min = float(g['importe_min'].replace(',', '.')) if g.get('importe_min') else None

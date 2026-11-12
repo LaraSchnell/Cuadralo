@@ -1,6 +1,6 @@
 # Cuádralo · instrucciones para Claude Code
 
-Cuádralo es un producto B2B de control de gestión para hoteles: lee el informe mensual del operador (tipo Mews) y los movimientos de Business Central, los cuadra, calcula la cuenta de resultados hasta GOP2, explica cada desviación hasta la factura y lo enseña en una web.
+Cuádralo es un producto B2B de control de gestión para hoteles: lee el informe mensual del operador (tipo Mews), los movimientos de Business Central y las reservas del PMS (Mews), los cuadra, calcula la cuenta de resultados hasta GOP2, explica cada desviación hasta la factura y lo enseña en una web.
 Responde y escribe comentarios, mensajes de commit y textos de la interfaz en español. La usuaria (Lara) no es programadora web: explica cada paso en lenguaje sencillo y dile exactamente qué tiene que hacer ella (qué clic, qué comando).
 
 ## Reglas que no se rompen
@@ -21,7 +21,7 @@ Un hotel grande puede tener 20.000-50.000 apuntes al mes (hasta ~1,8 millones de
 6. **Paginación y filtros en la base de datos**: ninguna tabla de apuntes carga todas las filas en memoria ni en el navegador.
 7. **Prueba con un hotel gigante** ficticio (50.000 apuntes al mes, 34 meses) antes de dar por terminado el paso 3. Objetivo: subir y procesar un mes < 2 min; abrir informe y apuntes < 2 s.
 
-Estado (12 nov 2026): cumplidos 1, 2 y 4. Pendientes 3, 5, 6 y 7: hoy cada página carga todos los movimientos de la empresa y recalcula el informe, y cada subida reprocesa todos los archivos en la propia petición.
+Estado (12 nov 2026): cumplidos 1, 2 y 4. Parcial: los datos calculados de cada empresa se guardan en memoria del proceso (portal/views.py, obtener_datos) y las reservas se cargan de forma incremental. Pendientes 3, 5, 6 y 7: la primera página tras una carga recalcula el informe, y cada subida reprocesa el resto de archivos en la propia petición.
 
 ## Documentación de referencia (en Google Drive de Lara)
 - `06_arquitectura_mvp`: arquitectura, flujo, páginas del informe, fases.
@@ -29,17 +29,29 @@ Estado (12 nov 2026): cumplidos 1, 2 y 4. Pendientes 3, 5, 6 y 7: hoy cada pági
 
 ## Estructura del repositorio (objetivo)
 ```
-datos_origen/            Excels ficticios de origen (operador, business_central, presupuesto)
-configuracion_grupo_demo.xlsx   hoteles, cecos, plan_cuentas, conceptos_pms, estructura_informe, parametros, casos_plantados
+datos_origen/            Excels ficticios de origen (operador, business_central, presupuesto, reservas)
+configuracion_grupo_demo.xlsx   hoteles, cecos, plan_cuentas, conceptos_pms, estructura_informe, parametros, casos_plantados,
+                                columnas_reservas (columnas de Mews → campos) y canales (origen/agencia de Mews → canal)
+herramientas/generar_reservas.py  genera las reservas ficticias, cuadradas con el informe del operador
 cuadralo/
   normalizar.py          origen → modelo común (paso 1, hecho)
   calculos.py            KPIs, cuadre, comprobación de ratios, cuenta de resultados hasta GOP2, labor cost
   reglas.py              motor de desviaciones (duplicada, otro mes, proveedor nuevo, subida de precio, factura que falta, falsa alarma)
-  informe.py             rellena las plantillas HTML con los resultados
+  reservas.py            noches por mes, canales, perfil del cliente y cuadre reservas–operador
+  informe.py             contenido del informe para una selección (varios meses, hoteles, ceco, proveedor, canal):
+                         tarjetas, gráficos con su texto y tooltip ya escritos, y qué filtra cada clic
   plantillas/            HTML + Chart.js (6 páginas de grupo + una por hotel)
 web/                     proyecto Django (login, empresa, subida, ver informe)
 tests/                   pytest: cifras de octubre 2026 y los 11 casos sembrados
 ```
+
+## Informe en la web (desde el 12 nov 2026)
+- Filtros: periodo año > mes (varios meses), hotel, ceco, proveedor y canal. Las tarjetas suman los meses elegidos y los gráficos de barras solo enseñan esos meses.
+- Cada página: tarjetas arriba, gráficos en el centro (Chart.js, en portal/static/portal/vendor), tablas abajo. Poco texto.
+- Cada punto de un gráfico trae desde Python su texto (encima) y su ayuda (tooltip con valor y %): el navegador no calcula cifras.
+- Clic en un gráfico o en una fila → vista `detalle` (JSON) con las facturas o las reservas de donde sale la cifra.
+- Perfiles: dirección y contabilidad ven todo; el director de hotel ve resumen, ventas, resultados y desviaciones de su hotel.
+- Reservas: sin nombres ni datos de contacto de huéspedes. Canal, segmento, país, personas, noches e ingresos.
 
 ## Cálculos (fuente de verdad: hoja estructura_informe y parametros)
 - Facturación de habitaciones = importe de alojamiento del operador. ADR = alojamiento / room nights. Room nights × ADR del operador solo sirve para comprobar el ratio.

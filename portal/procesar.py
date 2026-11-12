@@ -6,7 +6,7 @@ import pandas as pd
 from django.db import transaction
 
 from cuadralo import calculos, normalizar
-from .models import Carga, FilaOperador, FilaPresupuesto, MovimientoContable
+from .models import Carga, FilaOperador, FilaPresupuesto, MovimientoContable, Reserva
 
 TAMANO_LOTE = 1000  # filas por inserción masiva; mssql-django reparte cada lote para no pasar de 2.100 parámetros
 
@@ -46,6 +46,17 @@ def procesar_empresa(empresa):
         mov = normalizar.normalizar_bc([_abrir(c.archivo, c.nombre_original) for c in por_tipo[Carga.BUSINESS_CENTRAL]])
         pms = normalizar.normalizar_operador([_abrir(c.archivo, c.nombre_original) for c in por_tipo[Carga.OPERADOR]], cfg)
         pres = normalizar.normalizar_presupuesto([_abrir(c.archivo, c.nombre_original) for c in por_tipo[Carga.PRESUPUESTO]], cfg)
+        # Reservas: es la tabla más grande. Si ya hay reservas guardadas, solo se leen los archivos nuevos y sus
+        # reservas sustituyen a las que tengan el mismo número; así una subida en directo tarda segundos.
+        res_cargas = por_tipo[Carga.RESERVAS]
+        nuevas_res = [c for c in res_cargas if c.estado == 'pendiente']
+        incremental = Reserva.objects.filter(empresa=empresa).exists()
+        if incremental:
+            res = normalizar.normalizar_reservas([_abrir(c.archivo, c.nombre_original) for c in nuevas_res], cfg) \
+                if nuevas_res else None   # None = no tocar las reservas guardadas
+        else:
+            res = normalizar.normalizar_reservas([_abrir(c.archivo, c.nombre_original) for c in res_cargas], cfg) \
+                if res_cargas else pd.DataFrame()
         if len(mov):
             calculos.asignar_lineas(mov, cfg)  # falla si hay cuentas sin línea en el plan de cuentas
             fincas = set(mov['Finca']) - set(cfg['hoteles']['Finca'])
@@ -64,6 +75,12 @@ def procesar_empresa(empresa):
         MovimientoContable.objects.filter(empresa=empresa).delete()
         FilaOperador.objects.filter(empresa=empresa).delete()
         FilaPresupuesto.objects.filter(empresa=empresa).delete()
+        if res is not None and incremental:
+            numeros = list(res['Nº reserva'].unique())
+            for i in range(0, len(numeros), 1000):   # por tandas: SQL Server no admite listas muy largas
+                Reserva.objects.filter(empresa=empresa, numero__in=numeros[i:i + 1000]).delete()
+        elif res is not None:
+            Reserva.objects.filter(empresa=empresa).delete()
         if len(mov):
             MovimientoContable.objects.bulk_create([MovimientoContable(
                 empresa=empresa, fecha_registro=f_reg.date(), fecha_documento=f_doc.date(),
@@ -89,11 +106,29 @@ def procesar_empresa(empresa):
                 for fecha, hotel, linea, tipo, importe in zip(
                     pres['Fecha'], pres['Id hotel'], pres['Línea'], pres['Tipo'], pres['Presupuesto'])],
                 batch_size=TAMANO_LOTE)
+        if res is not None and len(res):
+            fecha = lambda v: None if pd.isna(v) else v.tz_localize('UTC').to_pydatetime()  # Mews da las fechas en UTC
+            Reserva.objects.bulk_create([Reserva(
+                empresa=empresa, hotel=hotel, numero=numero, estado=estado, estancia=bool(estancia), cancelada=bool(cancelada),
+                origen=origen, detalle_origen=detalle, agencia=agencia, canal=canal, tipo_canal=tipo, segmento=segmento,
+                tarifa=tarifa, tipo_habitacion=hab, fecha_creacion=fecha(creada), fecha_cancelacion=fecha(cancelacion),
+                llegada=llegada.date(), salida=salida.date(), noches=int(noches), adultos=int(adultos), ninos=int(ninos),
+                nacionalidad=pais, motivo=motivo, ingresos=_d(ingresos))
+                for (hotel, numero, estado, estancia, cancelada, origen, detalle, agencia, canal, tipo, segmento, tarifa, hab,
+                     creada, cancelacion, llegada, salida, noches, adultos, ninos, pais, motivo, ingresos) in zip(
+                    res['Id hotel'], res['Nº reserva'], res['Estado'], res['Estancia'], res['Cancelada'], res['Origen'],
+                    res['Detalle origen'], res['Agencia'], res['Canal'], res['Tipo de canal'], res['Segmento'], res['Tarifa'],
+                    res['Tipo de habitación'], res['Fecha de creación'], res['Fecha de cancelación'], res['Llegada'],
+                    res['Salida'], res['Noches'], res['Adultos'], res['Niños'], res['Nacionalidad'], res['Motivo'],
+                    res['Ingresos alojamiento'])],
+                batch_size=TAMANO_LOTE)
         for c in vigentes:
             if c.estado != 'ok':
                 c.estado, c.mensaje = 'ok', ''
                 c.save(update_fields=['estado', 'mensaje'])
-    return True, f'{len(mov)} movimientos, {len(pms)} filas del operador y {len(pres)} de presupuesto procesados.'
+    n_res = Reserva.objects.filter(empresa=empresa).count()
+    return True, (f'{len(mov)} movimientos, {len(pms)} filas del operador, {len(pres)} de presupuesto'
+                  f' y {n_res} reservas procesados.')
 
 
 def registrar_carga(empresa, usuario, tipo, archivo):
@@ -134,3 +169,28 @@ def presupuesto_empresa(empresa):
                                     'importe': 'Presupuesto'})
         pres['Presupuesto'] = pres['Presupuesto'].astype(float)
     return pres
+
+
+def reservas_empresa(empresa):
+    """Reservas de la empresa con los nombres de columna del normalizador."""
+    r = pd.DataFrame(list(Reserva.objects.filter(empresa=empresa).values(
+        'hotel', 'numero', 'estado', 'estancia', 'cancelada', 'origen', 'detalle_origen', 'agencia', 'canal', 'tipo_canal',
+        'segmento', 'tarifa', 'tipo_habitacion', 'fecha_creacion', 'fecha_cancelacion', 'llegada', 'salida', 'noches',
+        'adultos', 'ninos', 'nacionalidad', 'motivo', 'ingresos')))
+    if len(r) == 0:
+        return r
+    r = r.rename(columns={
+        'hotel': 'Id hotel', 'numero': 'Nº reserva', 'estado': 'Estado', 'estancia': 'Estancia', 'cancelada': 'Cancelada',
+        'origen': 'Origen', 'detalle_origen': 'Detalle origen', 'agencia': 'Agencia', 'canal': 'Canal',
+        'tipo_canal': 'Tipo de canal', 'segmento': 'Segmento', 'tarifa': 'Tarifa', 'tipo_habitacion': 'Tipo de habitación',
+        'fecha_creacion': 'Fecha de creación', 'fecha_cancelacion': 'Fecha de cancelación', 'llegada': 'Llegada',
+        'salida': 'Salida', 'noches': 'Noches', 'adultos': 'Adultos', 'ninos': 'Niños', 'nacionalidad': 'Nacionalidad',
+        'motivo': 'Motivo', 'ingresos': 'Ingresos alojamiento'})
+    r['Ingresos alojamiento'] = r['Ingresos alojamiento'].astype(float)
+    for col in ('Llegada', 'Salida'):
+        r[col] = pd.to_datetime(r[col])
+    for col in ('Fecha de creación', 'Fecha de cancelación'):
+        r[col] = pd.to_datetime(r[col], utc=True).dt.tz_localize(None)
+    r['Personas'] = r['Adultos'] + r['Niños']
+    r['Antelación (días)'] = (r['Llegada'] - r['Fecha de creación'].dt.normalize()).dt.days
+    return r

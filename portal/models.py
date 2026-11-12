@@ -53,10 +53,12 @@ class Carga(models.Model):
     OPERADOR = 'operador'
     BUSINESS_CENTRAL = 'business_central'
     PRESUPUESTO = 'presupuesto'
+    RESERVAS = 'reservas'
     TIPOS = [
         (OPERADOR, 'Informe del operador (tipo Mews)'),
         (BUSINESS_CENTRAL, 'Movimientos de Business Central'),
         (PRESUPUESTO, 'Presupuesto'),
+        (RESERVAS, 'Reservas del PMS (Mews)'),
     ]
     ESTADOS = [('pendiente', 'Pendiente'), ('ok', 'Procesada'), ('error', 'Error'), ('sustituida', 'Sustituida')]
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='cargas')
@@ -147,3 +149,35 @@ class FilaPresupuesto(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=['empresa', 'hotel', 'mes'])]
+
+
+class Reserva(models.Model):
+    """Una reserva del PMS. Sin nombres ni datos de contacto de los huéspedes: no hacen falta para el control de gestión."""
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
+    hotel = models.CharField(max_length=20)
+    numero = models.CharField(max_length=40)
+    estado = models.CharField(max_length=20)
+    estancia = models.BooleanField()
+    cancelada = models.BooleanField()
+    origen = models.CharField(max_length=40, blank=True)
+    detalle_origen = models.CharField(max_length=40, blank=True)
+    agencia = models.CharField(max_length=120, blank=True)
+    canal = models.CharField(max_length=80)
+    tipo_canal = models.CharField(max_length=40)
+    segmento = models.CharField(max_length=60, blank=True)
+    tarifa = models.CharField(max_length=80, blank=True)
+    tipo_habitacion = models.CharField(max_length=60, blank=True)
+    fecha_creacion = models.DateTimeField(null=True)
+    fecha_cancelacion = models.DateTimeField(null=True)
+    llegada = models.DateField()
+    salida = models.DateField()
+    noches = models.IntegerField()
+    adultos = models.IntegerField()
+    ninos = models.IntegerField()
+    nacionalidad = models.CharField(max_length=10, blank=True)
+    motivo = models.CharField(max_length=40, blank=True)
+    ingresos = models.DecimalField(max_digits=14, decimal_places=2)
+
+    class Meta:
+        indexes = [models.Index(fields=['empresa', 'hotel', 'llegada']),
+                   models.Index(fields=['empresa', 'canal'])]

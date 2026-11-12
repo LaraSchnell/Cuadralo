@@ -30,3 +30,12 @@ def clave(diccionario, nombre):
         return diccionario.get(nombre)
     except AttributeError:
         return None
+
+
+@register.filter
+def safe_json(valor):
+    """Un diccionario como JSON escapado para ponerlo dentro de un atributo HTML (data-clic='...')."""
+    import json
+    from django.utils.html import escape
+    from django.utils.safestring import mark_safe
+    return mark_safe(escape(json.dumps(valor, ensure_ascii=False)))

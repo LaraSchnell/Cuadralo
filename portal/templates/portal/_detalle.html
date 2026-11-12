@@ -1,0 +1,15 @@
+{# Tabla de detalle: se rellena al hacer clic en un gráfico o en una fila (ver informe.js y la vista detalle). #}
+<div class="tarjeta mt detalle-clic" id="detalle-{{ pagina_d }}" data-pagina="{{ pagina_d }}">
+  <div class="cabecera-tabla">
+    <h2 class="d-titulo">¿De dónde sale cada cifra?</h2>
+    <span>
+      {% if boton_todo %}<button type="button" class="boton pequeno secundario" data-ver-todo='{"tipo": "{{ boton_todo }}"}' data-pagina="{{ pagina_d }}">Ver {% if boton_todo == 'reservas' %}todas las reservas{% else %}todas las facturas{% endif %} del periodo</button>{% endif %}
+      <button type="button" class="boton pequeno secundario d-quitar" hidden>Quitar selección</button>
+      <a class="boton excel pequeno d-exportar" hidden href="#">Excel</a>
+    </span>
+  </div>
+  <p class="d-ayuda suave">{{ ayuda }}</p>
+  <ul class="d-explicacion" hidden></ul>
+  <div class="tabla-scroll"><table class="d-tabla" hidden><thead></thead><tbody></tbody></table></div>
+  <p class="d-pie suave" hidden></p>
+</div>

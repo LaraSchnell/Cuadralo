@@ -1,27 +1,78 @@
 {% extends 'portal/base.html' %}
-{% block titulo %}Informe{% endblock %}
+{% load cifras %}{% block titulo %}Informe{% endblock %}
 
 {% block barra %}{% if informe %}
 <form class="filtros" method="get" id="filtros">
-  {% if opciones_hotel|length > 1 %}
-  <label for="f-hotel">Hotel</label>
-  <select id="f-hotel" name="hotel" onchange="this.form.submit()">
-    {% for valor, texto in opciones_hotel %}<option value="{{ valor }}" {% if valor == seleccion %}selected{% endif %}>{{ texto }}</option>{% endfor %}
-  </select>
-  {% else %}<input type="hidden" name="hotel" value="{{ seleccion }}"><b>{{ informe.titulo }}</b>{% endif %}
-  <label for="f-mes">Mes</label>
-  <select id="f-mes" name="mes" onchange="this.form.submit()">
-    {% for valor, texto in meses %}<option value="{{ valor }}" {% if texto == mes_texto %}selected{% endif %}>{{ texto }}</option>{% endfor %}
-  </select>
-  <input type="hidden" name="periodo" id="f-periodo" value="{{ modo }}">
   <input type="hidden" name="p" id="f-p" value="{{ pagina }}">
-  <span class="conmutador" role="group" aria-label="Periodo">
-    <button type="button" class="{% if modo == 'mes' %}activo{% endif %}" onclick="periodo('mes')">Mes</button>
-    <button type="button" class="{% if modo == 'acumulado' %}activo{% endif %}" onclick="periodo('acumulado')">Acumulado del año</button>
-  </span>
-  <span class="suave">Compara con presupuesto y año anterior</span>
-  <a class="boton excel pequeno" href="{% url 'exportar' 'informe' %}?{{ filtros_url }}">Informe completo en Excel</a>
-  {% if empresa.datos_ficticios %}<span class="sello">Datos ficticios · {{ empresa.nombre }}</span>{% endif %}
+
+  <!-- Periodo: año > mes, se pueden marcar varios meses -->
+  <div class="desplegable" data-desplegable>
+    <button type="button" class="disparador"><span class="lbl">Periodo</span> <b>{{ periodo_texto }}</b></button>
+    <div class="panel panel-meses">
+      <div class="rapidos">
+        <button type="button" data-rapido="ultimo">Último mes</button>
+        <button type="button" data-rapido="tres">Últimos 3 meses</button>
+        <button type="button" data-rapido="anio">Año en curso</button>
+        <button type="button" data-rapido="nada">Quitar todo</button>
+      </div>
+      {% for a in arbol_meses %}
+      <div class="anio">
+        <label class="anio-tit"><input type="checkbox" data-anio="{{ a.anio }}" {% if a.todos %}checked{% endif %}> {{ a.anio }}</label>
+        <div class="meses-anio">
+          {% for m in a.meses %}<label class="mes"><input type="checkbox" name="meses" value="{{ m.id }}" data-de="{{ a.anio }}" {% if m.sel %}checked{% endif %}><span>{{ m.corto }}</span></label>{% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+      <div class="pie-panel"><button type="submit" class="boton pequeno">Aplicar</button></div>
+    </div>
+  </div>
+
+  {% if f_hoteles|length > 1 %}
+  <div class="desplegable" data-desplegable>
+    <button type="button" class="disparador"><span class="lbl">Hotel</span> <b>{{ txt_hotel }}</b></button>
+    <div class="panel">
+      {% for o in f_hoteles %}<label class="opcion"><input type="checkbox" name="hotel" value="{{ o.valor }}" {% if o.sel %}checked{% endif %}> {{ o.texto }}</label>{% endfor %}
+      <div class="pie-panel"><span class="suave">Sin marcar = todos</span><button type="submit" class="boton pequeno">Aplicar</button></div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'resultados' in paginas_visibles %}
+  <div class="desplegable" data-desplegable>
+    <button type="button" class="disparador"><span class="lbl">Ceco</span> <b>{{ txt_ceco }}</b></button>
+    <div class="panel">
+      {% for o in f_cecos %}<label class="opcion"><input type="checkbox" name="ceco" value="{{ o.valor }}" {% if o.sel %}checked{% endif %}> {{ o.texto }}</label>{% endfor %}
+      <div class="pie-panel"><span class="suave">Afecta a gastos y facturas</span><button type="submit" class="boton pequeno">Aplicar</button></div>
+    </div>
+  </div>
+  <div class="desplegable" data-desplegable>
+    <button type="button" class="disparador"><span class="lbl">Proveedor</span> <b>{{ txt_proveedor }}</b></button>
+    <div class="panel panel-largo">
+      <input type="search" class="buscar" placeholder="Buscar proveedor" data-buscar>
+      <div class="lista">{% for o in f_proveedores %}<label class="opcion"><input type="checkbox" name="proveedor" value="{{ o.valor }}" {% if o.sel %}checked{% endif %}> {{ o.texto }}</label>{% endfor %}</div>
+      <div class="pie-panel"><span class="suave">Afecta a gastos y facturas</span><button type="submit" class="boton pequeno">Aplicar</button></div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if f_canales %}
+  <div class="desplegable" data-desplegable>
+    <button type="button" class="disparador"><span class="lbl">Canal</span> <b>{{ txt_canal }}</b></button>
+    <div class="panel">
+      {% for o in f_canales %}<label class="opcion"><input type="checkbox" name="canal" value="{{ o.valor }}" {% if o.sel %}checked{% endif %}> {{ o.texto }}</label>{% endfor %}
+      <div class="pie-panel"><span class="suave">Afecta a las reservas</span><button type="submit" class="boton pequeno">Aplicar</button></div>
+    </div>
+  </div>
+  {% endif %}
+
+  <a class="boton excel pequeno" href="{% url 'exportar' 'informe' %}?{{ filtros_url }}">Excel</a>
+  {% if empresa.datos_ficticios %}<span class="sello">Datos ficticios</span>{% endif %}
+  {% if etiquetas_filtro %}
+  <div class="chips-filtro">
+    {% for e in etiquetas_filtro %}<a class="chip-filtro" href="?{{ e.quitar }}&amp;p={{ pagina }}" title="Quitar este filtro">{{ e.texto }} <span>×</span></a>{% endfor %}
+    <a class="quitar-todo" href="?meses={{ meses_sel|join:'&meses=' }}&amp;p={{ pagina }}">Quitar filtros</a>
+  </div>
+  {% endif %}
 </form>
 {% endif %}{% endblock %}
 
@@ -35,193 +86,210 @@
 {% else %}
 {% with i=informe %}
 
-<!-- ===================== 1. RESUMEN ===================== -->
+<!-- ===================== RESUMEN ===================== -->
 <section class="pagina" id="resumen">
-  <h1>¿Cómo ha ido {% if modo == 'mes' %}el mes{% else %}el año{% endif %}?</h1>
-  <div class="cabecera-tabla"><p class="subtitulo" style="margin:0">{{ i.titulo }} · {{ i.periodo_texto }} · {{ i.habitaciones }} habitaciones.</p><a class="boton excel pequeno" href="{% url 'exportar' 'indicadores' %}?{{ filtros_url }}">Indicadores en Excel</a></div>
-  <div class="rejilla r4">{% for t in i.tarjetas_portada %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>
-
+  <div class="cabecera-pagina"><h1>¿Cómo ha ido el periodo?</h1><span class="suave">{{ i.titulo }} · {{ i.periodo_texto }}</span></div>
+  {% if not i.hay_ppto %}<p class="nota">No hay presupuesto cargado para este periodo: las tarjetas solo comparan con el año anterior.</p>{% endif %}
+  <div class="rejilla r6">{% for t in i.tarjetas_resumen %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>
   <div class="rejilla r21 mt">
-    <div class="tarjeta">
-      <h2>¿Los ingresos se convierten en beneficio?</h2>
-      <div class="leyenda"><span><i style="background:#0F172A"></i>Ingresos</span><span><i style="background:#94A3B8"></i>Presupuesto</span>
-        <span><i style="background:#CBD5E1"></i>Año anterior</span><span><i style="background:#10B981"></i>GOP</span></div>
-      <div id="g-ingresos"></div>
-      <div class="nota">Miles de €. Últimos 13 meses.</div>
-    </div>
-    <div class="tarjeta">
-      <h2>¿Cuadran los números?</h2>
-      <div class="estado-cuadre">
-        <span class="punto" style="background:{% if i.diferencias %}var(--rojo){% else %}var(--verde){% endif %}"></span>
-        <div><b>{% if i.diferencias %}{{ i.diferencias|length }} diferencia{{ i.diferencias|length|pluralize }} · {{ i.importe_diferencias }}{% else %}Cuadra{% endif %}</b>
-          <div class="nota">Operador frente a contabilidad · {{ i.cuadre|length }} líneas · {{ mes_texto }}</div></div>
-      </div>
-      <div class="estado-cuadre" style="margin-bottom:14px">
-        <span class="punto" style="background:{% if i.ratios_mal %}var(--ambar){% else %}var(--verde){% endif %}"></span>
-        <div><b>{% if i.ratios_mal %}{{ i.ratios_mal|length }} ratio{{ i.ratios_mal|length|pluralize }} del operador mal calculado{{ i.ratios_mal|length|pluralize }}{% else %}Ratios del operador correctos{% endif %}</b>
-          <div class="nota">{{ i.ratios|length }} ratios comprobados</div></div>
-      </div>
-      <h2>En pocas frases</h2>
-      {% for f in i.frases %}<div class="frase">{{ f|safe }}</div>{% endfor %}
-    </div>
-  </div>
-
-  <div class="tarjeta mt">
-    <h2>¿Qué hay que revisar? <span class="suave">· {{ i.alertas|length }} de {{ i.total_alertas }} alertas, por prioridad</span></h2>
-    {% for a in i.alertas %}
-    <div class="alerta"><div class="barra {% if a.color == 'aviso' %}aviso{% endif %}"></div><div>
-      <div class="que"><span class="insignia i-gris">{{ a.tipo }}</span> {{ a.que }}</div>
-      <div class="cuanto">{{ a.cuanto }}</div>
-      {% if a.detalle %}<div class="cuanto">{{ a.detalle }}</div>{% endif %}
-      <div class="meta">{{ a.donde }} · {{ a.umbral }} · {{ a.periodo }} · <a href="#" data-ir="{{ a.pagina }}">ver detalle</a></div>
-    </div></div>
-    {% empty %}<p class="vacio">Nada que revisar este mes.</p>{% endfor %}
-  </div>
-  <div class="pie-informe">Última carga: {% if ultima_carga %}{{ ultima_carga.creada|date:"d/m/Y H:i" }}{% else %}—{% endif %} ·
-    Fuentes: informe del operador, movimientos contables y presupuesto. Cifras calculadas por código con fórmulas versionadas; ninguna cifra la escribe la IA.
-    {% if not i.hay_ppto %}No hay presupuesto cargado para este periodo.{% endif %}</div>
-</section>
-
-<!-- ===================== 2. VENTAS ===================== -->
-<section class="pagina" id="ventas">
-  <h1>¿Estamos vendiendo bien las habitaciones y los extras?</h1>
-  <p class="subtitulo">{{ i.titulo }} · {{ i.periodo_texto }}. Volumen, precio y lo que se vende además de la habitación.</p>
-  <div class="rejilla r4">{% for t in i.tarjetas_ventas %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>
-  <div class="rejilla r2 mt">
-    <div class="tarjeta"><h2>¿Llenamos el hotel?</h2>
-      <div class="leyenda"><span><i style="background:#0F172A"></i>Ocupación %</span><span><i style="background:#CBD5E1"></i>Año anterior</span></div>
-      <div id="g-ocupacion"></div></div>
-    <div class="tarjeta"><h2>¿A qué precio?</h2>
-      <div class="leyenda"><span><i style="background:#0F172A"></i>ADR €</span><span><i style="background:#CBD5E1"></i>Año anterior</span></div>
-      <div id="g-adr"></div></div>
+    <div class="tarjeta"><h2>Ingresos, gastos y GOP por mes</h2><div class="lienzo"><canvas data-grafico="resultado_mes" data-pagina="resumen"></canvas></div></div>
+    {% if i.graficos.hoteles %}
+    <div class="tarjeta"><h2>GOP por hotel</h2><div class="lienzo"><canvas data-grafico="hoteles" data-pagina="resumen"></canvas></div></div>
+    {% else %}
+    <div class="tarjeta"><h2>Ingresos por departamento</h2><div class="lienzo"><canvas data-grafico="departamentos" data-pagina="resumen"></canvas></div></div>
+    {% endif %}
   </div>
   <div class="tarjeta mt tabla-scroll">
-    <div class="cabecera-tabla"><h2>¿Qué línea de ingreso se aleja del presupuesto?</h2><a class="boton excel pequeno" href="{% url 'exportar' 'ingresos' %}?{{ filtros_url }}">Exportar a Excel</a></div>
+    <div class="cabecera-tabla"><h2>¿Qué hay que revisar? <span class="suave">· {{ i.total_alertas }} avisos, por prioridad</span></h2></div>
+    {% if i.todas_alertas %}
     <table>
-      <thead><tr><th>Línea</th><th class="d">Real</th><th class="d">Presupuesto</th><th class="d">Var. €</th><th class="d">Var. %</th><th class="d ocultar-movil">Año anterior</th></tr></thead>
-      <tbody>{% for f in i.ingresos %}
-        <tr class="{% if f.tipo == 'Subtotal' %}total{% endif %}"><td>{{ f.linea }}</td><td class="d">{{ f.real }}</td><td class="d">{{ f.ppto }}</td>
-          <td class="d {{ f.var.estado }}">{{ f.dif }}</td><td class="d {{ f.var.estado }}">{% if f.var %}{{ f.var.texto }}{% else %}—{% endif %}</td>
-          <td class="d ocultar-movil">{{ f.aa }}</td></tr>
+      <thead><tr><th>Aviso</th><th>Cuánto</th><th class="ocultar-movil">Periodo</th><th></th></tr></thead>
+      <tbody>{% for a in i.todas_alertas|slice:":10" %}
+        <tr class="fila-clic" data-ir="{{ a.pagina }}">
+          <td><span class="punto-color {{ a.color }}"></span><b>{{ a.que }}</b><div class="suave pequeno">{{ a.detalle|truncatechars:140 }}</div></td>
+          <td>{{ a.cuanto }}</td><td class="ocultar-movil suave">{{ a.periodo }}</td><td class="d"><span class="enlace-ver">Ver ›</span></td></tr>
+      {% endfor %}</tbody>
+    </table>
+    {% else %}<p class="vacio">Nada que revisar: todo cuadra y no hay desviaciones.</p>{% endif %}
+  </div>
+  {% include 'portal/_detalle.html' with pagina_d='resumen' ayuda='Haz clic en un mes del gráfico para ver sus facturas.' %}
+</section>
+
+<!-- ===================== VENTAS Y OCUPACIÓN ===================== -->
+<section class="pagina" id="ventas">
+  <div class="cabecera-pagina"><h1>¿Cómo vendemos?</h1><span class="suave">{{ i.titulo }} · {{ i.periodo_texto }}</span></div>
+  {% if i.filtro_canal %}<p class="nota">El filtro de canal se aplica a las reservas. Ocupación, ADR y RevPAR son del informe del operador y no cambian.</p>{% endif %}
+  <div class="rejilla r4">{% for t in i.tarjetas_ocupacion %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>
+  {% if i.tarjetas_reservas %}<div class="rejilla r4 mt">{% for t in i.tarjetas_reservas %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>{% endif %}
+  <div class="rejilla r2 mt">
+    <div class="tarjeta"><h2>Ocupación por mes <span class="suave">· frente al año anterior</span></h2><div class="lienzo"><canvas data-grafico="ocupacion_mes" data-pagina="ventas"></canvas></div></div>
+    <div class="tarjeta"><h2>ADR y RevPAR por mes</h2><div class="lienzo"><canvas data-grafico="adr_mes" data-pagina="ventas"></canvas></div></div>
+  </div>
+  {% if i.hay_reservas %}
+  <div class="rejilla r3 mt">
+    <div class="tarjeta"><h2>Noches por canal</h2><div class="lienzo alto"><canvas data-grafico="canales" data-pagina="ventas"></canvas></div></div>
+    <div class="tarjeta"><h2>¿Quién viene? <span class="suave">· segmento</span></h2><div class="lienzo alto"><canvas data-grafico="segmentos" data-pagina="ventas"></canvas></div></div>
+    <div class="tarjeta"><h2>¿De dónde vienen?</h2><div class="lienzo alto"><canvas data-grafico="paises" data-pagina="ventas"></canvas></div></div>
+  </div>
+  {% else %}
+  <div class="tarjeta mt"><p class="vacio">Sube las reservas del PMS para ver canales, segmentos y países.</p></div>
+  {% endif %}
+  <div class="tarjeta mt"><h2>Ingresos por departamento</h2><div class="lienzo"><canvas data-grafico="departamentos" data-pagina="ventas"></canvas></div></div>
+  {% if i.canales %}
+  <div class="tarjeta mt tabla-scroll">
+    <div class="cabecera-tabla"><h2>Canales de venta</h2><span class="suave">Haz clic en un canal para ver sus reservas</span></div>
+    <table>
+      <thead><tr><th>Canal</th><th class="ocultar-movil">Tipo</th><th class="d">Reservas</th><th class="d">Noches</th><th class="d">% noches</th><th class="d">Ingresos</th><th class="d">ADR</th><th class="d ocultar-movil">Antelación</th><th class="d ocultar-movil">Cancelación</th></tr></thead>
+      <tbody>{% for c in i.canales %}
+        <tr class="fila-clic" data-clic='{{ c.clic|safe_json }}' data-pagina="ventas"><td><b>{{ c.canal }}</b></td><td class="ocultar-movil"><span class="insignia i-gris">{{ c.tipo }}</span></td>
+          <td class="d">{{ c.reservas }}</td><td class="d">{{ c.noches }}</td><td class="d">{{ c.pct_noches }}</td><td class="d">{{ c.ingresos }}</td>
+          <td class="d">{{ c.adr }}</td><td class="d ocultar-movil">{{ c.antelacion }}</td><td class="d ocultar-movil">{{ c.cancelacion }}</td></tr>
       {% endfor %}</tbody>
     </table>
   </div>
-  <div class="pie-informe">Ocupación = room nights / (habitaciones × días). ADR = ingresos de alojamiento del operador / room nights (nunca el ADR que reporta el operador). Ingresos por línea según contabilidad.</div>
+  {% endif %}
+  {% include 'portal/_detalle.html' with pagina_d='ventas' ayuda='Haz clic en un mes, un canal, un segmento o un país para ver las reservas y cómo se llega a la ocupación.' boton_todo='reservas' %}
 </section>
 
-<!-- ===================== 3. CUADRE ===================== -->
-<section class="pagina" id="cuadre">
-  <h1>¿Cuadra lo que dice el operador con la contabilidad?</h1>
-  <p class="subtitulo">{{ i.titulo }} · {{ mes_texto }}. Línea a línea, con la causa de cada diferencia.</p>
-  <div class="tarjeta tabla-scroll"><div class="cabecera-tabla"><h2>Ingresos: operador frente a contabilidad</h2><a class="boton excel pequeno" href="{% url 'exportar' 'cuadre' %}?{{ filtros_url }}">Exportar a Excel</a></div>
-    <table>
-      <thead><tr>{% if i.es_grupo %}<th>Hotel</th>{% endif %}<th>Línea</th><th class="d">Operador</th><th class="d">Contabilidad</th><th class="d">Diferencia</th><th>Estado</th><th>Causa</th></tr></thead>
-      <tbody>{% for f in i.cuadre %}{% if not i.es_grupo or not f.cuadra %}
-        <tr>{% if i.es_grupo %}<td>{{ f.hotel }}</td>{% endif %}<td>{{ f.linea }}</td><td class="d">{{ f.operador }}</td><td class="d">{{ f.contabilidad }}</td>
-          <td class="d {% if not f.cuadra %}mal{% endif %}">{{ f.diferencia }}</td>
-          <td>{% if f.cuadra %}<span class="insignia i-ok">Cuadra</span>{% else %}<span class="insignia i-mal">No cuadra</span>{% endif %}</td>
-          <td>{{ f.causa }}</td></tr>
-      {% endif %}{% endfor %}</tbody>
-    </table>
-    {% if i.es_grupo %}<p class="nota">En la vista de grupo solo se listan las líneas que no cuadran ({{ i.diferencias|length }} de {{ i.cuadre|length }}). Elige un hotel para verlas todas.</p>{% endif %}
-  </div>
-  <div class="tarjeta tabla-scroll"><div class="cabecera-tabla"><h2>¿Los ratios del operador están bien calculados?</h2><a class="boton excel pequeno" href="{% url 'exportar' 'ratios' %}?{{ filtros_url }}">Exportar a Excel</a></div>
-    <table>
-      <thead><tr>{% if i.es_grupo %}<th>Hotel</th>{% endif %}<th>Ratio</th><th class="d">Operador</th><th class="d">Recalculado</th><th class="d">Diferencia</th><th>Estado</th><th class="ocultar-movil">Nota</th></tr></thead>
-      <tbody>{% for x in i.ratios %}{% if not i.es_grupo or not x.correcto %}
-        <tr>{% if i.es_grupo %}<td>{{ x.hotel }}</td>{% endif %}<td>{{ x.ratio }}<div class="nota">{{ x.formula }}</div></td><td class="d">{{ x.operador }}</td><td class="d">{{ x.recalculado }}</td>
-          <td class="d {% if not x.correcto %}aviso{% endif %}">{{ x.diferencia }}</td>
-          <td>{% if x.correcto %}<span class="insignia i-ok">Correcto</span>{% else %}<span class="insignia i-aviso">Revisar</span>{% endif %}</td>
-          <td class="ocultar-movil">{{ x.nota }}</td></tr>
-      {% endif %}{% empty %}<tr><td colspan="7" class="vacio">No hay ratios del operador este mes.</td></tr>{% endfor %}</tbody>
-    </table>
-  </div>
-</section>
-
-<!-- ===================== 4. CUENTA DE RESULTADOS ===================== -->
+<!-- ===================== CUENTA DE RESULTADOS ===================== -->
 <section class="pagina" id="resultados">
-  <h1>¿Cuánto ganamos y dónde se va el dinero?</h1>
-  <p class="subtitulo">{{ i.titulo }} · {{ i.periodo_texto }}. Cuenta de resultados USALI hasta GOP2.</p>
-  <div class="rejilla r4">{% for t in i.tarjetas_resultados %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>
-  <div class="tarjeta mt"><h2>De los ingresos al GOP2</h2><div id="g-cascada"></div>
-    <div class="nota">Miles de €. Ajustes = honorarios del operador y reserva FF&amp;E. Bajo AGOP = tributos, amortizaciones y gastos financieros.</div></div>
+  <div class="cabecera-pagina"><h1>¿Cuánto ganamos y dónde se va el dinero?</h1><span class="suave">{{ i.titulo }} · {{ i.periodo_texto }}</span></div>
+  {% if i.filtro_gastos %}<p class="nota">Filtro de ceco o proveedor activo: se aplica al gráfico de gastos y a las facturas. Las tarjetas y la cuenta de resultados son del total.</p>{% endif %}
+  <div class="rejilla r6">{% for t in i.tarjetas_cuenta %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>
   <div class="rejilla r2 mt">
-    <div class="tarjeta tabla-scroll"><div class="cabecera-tabla"><h2>Cuenta de resultados</h2><span><button type="button" class="boton pequeno" onclick="this.closest('.tarjeta').querySelector('table').classList.toggle('abierta')">Ver detalle</button> <a class="boton excel pequeno" href="{% url 'exportar' 'cuenta' %}?{{ filtros_url }}">Exportar a Excel</a></span></div>
-      <table>
-        <thead><tr><th>Línea</th><th class="d">Real</th><th class="d">Ppto</th><th class="d">Var. %</th><th class="d ocultar-movil">Año ant.</th></tr></thead>
-        <tbody>{% for f in i.pyg %}
-          <tr class="{% if f.tipo == 'Subtotal' %}total{% elif f.tipo == 'Resultado' %}resultado{% else %}detalle{% endif %}">
-            <td>{{ f.linea }}</td><td class="d">{{ f.real }}</td><td class="d">{{ f.ppto }}</td>
-            <td class="d {{ f.var.estado }}">{% if f.var %}{{ f.var.texto }}{% else %}—{% endif %}</td><td class="d ocultar-movil">{{ f.aa }}</td></tr>
-        {% endfor %}</tbody>
-      </table>
-      <p class="nota">En los gastos, subir es rojo.</p>
-    </div>
-    <div class="tarjeta"><h2>¿Qué partida cuesta más por noche vendida?</h2>
-      <div class="leyenda"><span><i style="background:#EF4444"></i>Por encima del presupuesto</span><span><i style="background:#10B981"></i>Por debajo</span>
-        <span><i style="background:#0F172A;width:2px;height:12px"></i>Presupuesto</span></div>
-      <div id="g-coste-rn"></div>
-      <div class="nota">€ por room night vendida.</div></div>
+    <div class="tarjeta"><h2>De los ingresos al GOP2</h2><div class="lienzo alto"><canvas data-grafico="cascada" data-pagina="resultados"></canvas></div></div>
+    <div class="tarjeta"><h2>Las 10 partidas de gasto más grandes{% if i.hay_ppto and not i.filtro_gastos %} <span class="suave">· frente al presupuesto</span>{% endif %}</h2><div class="lienzo alto"><canvas data-grafico="gastos" data-pagina="resultados"></canvas></div></div>
   </div>
+  <div class="tarjeta mt tabla-scroll">
+    <div class="cabecera-tabla"><h2>Cuenta de resultados</h2><span><button type="button" class="boton pequeno secundario" data-abrir-detalle>Ver todas las líneas</button> <a class="boton excel pequeno" href="{% url 'exportar' 'cuenta' %}?{{ filtros_url }}">Excel</a></span></div>
+    <table class="pyg">
+      <thead><tr><th>Línea</th><th class="d">Real</th><th class="d">Presupuesto</th><th class="d">Diferencia</th><th class="d">Var.</th><th class="d ocultar-movil">Año anterior</th></tr></thead>
+      <tbody>{% for x in i.pyg %}
+        <tr class="{% if x.tipo == 'Detalle' %}detalle{% elif x.tipo == 'Subtotal' %}total{% else %}resultado{% endif %}{% if x.clic %} fila-clic{% endif %}" {% if x.clic %}data-clic='{{ x.clic|safe_json }}' data-pagina="resultados"{% endif %}>
+          <td>{{ x.linea }}</td><td class="d">{{ x.real }}</td><td class="d">{{ x.ppto }}</td><td class="d">{{ x.dif }}</td>
+          <td class="d">{% if x.var %}<span class="{{ x.var.estado }}">{{ x.var.texto }}</span>{% else %}—{% endif %}</td><td class="d ocultar-movil">{{ x.aa }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  {% include 'portal/_detalle.html' with pagina_d='resultados' ayuda='Haz clic en un bloque, una partida o una línea de la tabla para ver de qué facturas sale.' boton_todo='facturas' %}
 </section>
 
-<!-- ===================== 5. DESVIACIONES ===================== -->
+<!-- ===================== DESVIACIONES ===================== -->
 <section class="pagina" id="desviaciones">
-  <h1>¿Qué se ha desviado y por qué?</h1>
-  <div class="cabecera-tabla"><p class="subtitulo" style="margin:0">{{ i.titulo }} · {{ mes_texto }}. Líneas que se mueven más de un 5 % y más de 500 € frente al presupuesto o al año anterior. Pulsa una fila para ver sus apuntes.</p><a class="boton excel pequeno" href="{% url 'exportar' 'desviaciones' %}?{{ filtros_url }}">Exportar a Excel</a></div>
-  <div class="tarjeta tabla-scroll">
+  <div class="cabecera-pagina"><h1>¿Qué se ha desviado y por qué?</h1><span class="suave">{{ i.titulo }} · {{ i.periodo_texto }}</span></div>
+  {% if i.graficos.desviaciones %}
+  <div class="tarjeta"><h2>Las mayores desviaciones <span class="suave">· verde favorable, rojo desfavorable</span></h2><div class="lienzo alto"><canvas data-grafico="desviaciones" data-pagina="desviaciones"></canvas></div></div>
+  {% endif %}
+  <div class="tarjeta mt tabla-scroll">
+    <div class="cabecera-tabla"><h2>Desviaciones y su causa <span class="suave">· {{ i.desviaciones|length }}</span></h2><a class="boton excel pequeno" href="{% url 'exportar' 'desviaciones' %}?{{ filtros_url }}">Excel</a></div>
+    {% if i.desviaciones %}
     <table>
-      <thead><tr>{% if i.es_grupo %}<th>Hotel</th>{% endif %}<th>Línea</th><th class="d">Diferencia</th><th class="d">Var.</th><th>Causa</th><th class="ocultar-movil">Proveedor · documento</th></tr></thead>
+      <thead><tr><th>Línea</th>{% if i.es_grupo %}<th>Hotel</th>{% endif %}{% if i.varios_meses %}<th>Mes</th>{% endif %}<th class="d">Real</th><th class="d">Diferencia</th><th>Causa</th></tr></thead>
       <tbody>{% for d in i.desviaciones %}
-        <tr class="fila-desv" data-fila="ap-{{ forloop.counter }}">
-          {% if i.es_grupo %}<td>{{ d.hotel }}</td>{% endif %}
-          <td><b>{{ d.linea }}</b><div class="nota">frente al {{ d.referencia }}</div></td>
-          <td class="d {% if d.favorable %}bien{% else %}mal{% endif %}">{{ d.dif }}</td>
-          <td class="d {% if d.favorable %}bien{% else %}mal{% endif %}">{{ d.var }}</td>
-          <td>{% for c in d.causas %}<div class="causa"><span class="insignia {% if c.etiqueta == 'Sin causa' %}i-aviso{% elif c.etiqueta == 'Venta' %}i-gris{% else %}i-mal{% endif %}">{{ c.etiqueta }}</span> {{ c.texto }}{% if c.importe %} <span class="suave">({{ c.importe }})</span>{% endif %}</div>{% endfor %}</td>
-          <td class="ocultar-movil">{% for c in d.causas %}{% if c.proveedor %}{{ c.proveedor }}{% if c.documento %} · {{ c.documento }}{% endif %}<br>{% endif %}{% endfor %}</td>
+        <tr class="fila-clic" data-clic='{{ d.clic|safe_json }}' data-pagina="desviaciones">
+          <td><b>{{ d.linea }}</b>{% if not i.es_grupo %} · {{ d.hotel }}{% endif %}</td>{% if i.es_grupo %}<td>{{ d.hotel }}</td>{% endif %}{% if i.varios_meses %}<td>{{ d.mes }}</td>{% endif %}
+          <td class="d">{{ d.real }}</td>
+          <td class="d"><span class="{% if d.favorable %}bien{% else %}mal{% endif %}">{{ d.dif }}</span><div class="suave pequeno">{{ d.var }} vs {{ d.referencia }}</div></td>
+          <td>{% for c in d.causas %}<div class="causa"><span class="insignia {% if c.etiqueta == 'Falsa alarma' or c.etiqueta == 'Venta' %}i-gris{% elif c.etiqueta == 'Sin causa' %}i-aviso{% else %}i-mal{% endif %}">{{ c.etiqueta }}</span> {{ c.texto }}{% if c.proveedor %} <span class="suave">· {{ c.proveedor }}{% if c.documento %} · {{ c.documento }}{% endif %}{% if c.importe %} · {{ c.importe }}{% endif %}</span>{% endif %}</div>{% endfor %}</td>
         </tr>
-        <tr class="apuntes" id="ap-{{ forloop.counter }}" style="display:none"><td colspan="6">
-          <b>Real {{ d.real }} · presupuesto {{ d.ppto }} · año anterior {{ d.aa }}</b><br>
-          {% for a in d.apuntes %}{{ a.fecha }} · {{ a.doc }} · {{ a.proveedor }} · {{ a.descripcion }} · {{ a.importe }}<br>{% empty %}Sin apuntes contables en esta línea este mes.{% endfor %}
-          <a href="{% url 'apuntes' %}?hotel={{ d.hotel_id }}&amp;mes={{ mes|date:'Y-m' }}&amp;linea={{ d.linea|urlencode }}&amp;agrupar=proveedor">Ver todos los apuntes de esta línea →</a>
-        </td></tr>
-      {% empty %}<tr><td colspan="6" class="vacio">Ninguna línea supera los umbrales este mes.</td></tr>{% endfor %}</tbody>
+      {% endfor %}</tbody>
     </table>
-    {% if i.falsas_alarmas %}<details><summary>{{ i.falsas_alarmas|length }} falsa{{ i.falsas_alarmas|length|pluralize }} alarma{{ i.falsas_alarmas|length|pluralize }} descartada{{ i.falsas_alarmas|length|pluralize }}</summary>
-      {% for d in i.falsas_alarmas %}<p style="margin:10px 0 0"><b>{{ d.linea }}</b>{% if i.es_grupo %} · {{ d.hotel }}{% endif %} · {{ d.dif }} frente al {{ d.referencia }} ({{ d.var }}). {{ d.causas.0.texto }}</p>{% endfor %}
+    {% else %}<p class="vacio">Ninguna línea supera los umbrales de desviación.</p>{% endif %}
+    {% if i.falsas_alarmas %}
+    <details><summary>{{ i.falsas_alarmas|length }} falsas alarmas (se explican por la actividad)</summary>
+      <table><tbody>{% for d in i.falsas_alarmas %}<tr class="fila-clic" data-clic='{{ d.clic|safe_json }}' data-pagina="desviaciones"><td>{{ d.linea }} · {{ d.hotel }}{% if i.varios_meses %} · {{ d.mes }}{% endif %}</td><td class="d">{{ d.dif }}</td><td>{{ d.causas.0.texto }}</td></tr>{% endfor %}</tbody></table>
     </details>{% endif %}
   </div>
-  <div class="pie-informe">Reglas: duplicada, factura de otro mes, proveedor nuevo, factura que falta, subida de precio, cuadre y falsa alarma. Umbrales y tolerancias en la configuración de la empresa.</div>
+  {% include 'portal/_detalle.html' with pagina_d='desviaciones' ayuda='Haz clic en una desviación para ver sus facturas.' %}
 </section>
 
-<!-- ===================== 6. COMPARATIVA ===================== -->
-{% if i.es_grupo %}
-<section class="pagina" id="comparativa">
-  <h1>¿Qué hotel lo hace mejor?</h1>
-  <div class="cabecera-tabla"><p class="subtitulo" style="margin:0">Grupo · {{ i.periodo_texto }}. Mismos KPIs por hotel. Elige un hotel arriba para ver su informe.</p><span><a class="boton excel pequeno" href="{% url 'exportar' 'comparativa' %}?{{ filtros_url }}">Exportar a Excel</a> <a class="boton excel pequeno" href="{% url 'exportar' 'coste_rn' %}?{{ filtros_url }}">Coste por room night</a></span></div>
-  <div class="tarjeta tabla-scroll">
+{% if 'cuadre' in paginas_visibles %}
+<!-- ===================== CUADRE ===================== -->
+<section class="pagina" id="cuadre">
+  <div class="cabecera-pagina"><h1>¿Cuadra lo que dice el operador con la contabilidad?</h1><span class="suave">{{ i.titulo }} · {{ i.periodo_texto }}</span></div>
+  <div class="rejilla r4">
+    <div class="tarjeta kpi"><div class="nombre">Líneas que no cuadran</div><div class="valor {% if i.diferencias %}mal{% else %}bien{% endif %}">{{ i.diferencias|length }}</div><div class="comparar"><span class="lbl">de {{ i.cuadre|length }} líneas de ingreso</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Importe de las diferencias</div><div class="valor">{{ i.importe_diferencias }}</div><div class="comparar"><span class="lbl">suma de cada diferencia</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Ratios del operador mal calculados</div><div class="valor {% if i.ratios_mal %}aviso{% else %}bien{% endif %}">{{ i.ratios_mal|length }}</div><div class="comparar"><span class="lbl">de {{ i.ratios|length }} comprobados</span></div></div>
+    <div class="tarjeta kpi"><div class="nombre">Reservas frente al operador</div><div class="valor {% if i.cuadre_reservas_mal %}mal{% else %}bien{% endif %}">{% if not i.hay_reservas %}—{% elif i.cuadre_reservas_mal %}{{ i.cuadre_reservas_mal|length }} meses no{% else %}Cuadra{% endif %}</div><div class="comparar"><span class="lbl">noches e ingresos de alojamiento</span></div></div>
+  </div>
+  {% if i.graficos.cuadre %}<div class="tarjeta mt"><h2>Diferencias operador − contabilidad</h2><div class="lienzo"><canvas data-grafico="cuadre" data-pagina="cuadre"></canvas></div></div>{% endif %}
+  <div class="tarjeta mt tabla-scroll">
+    <div class="cabecera-tabla"><h2>Ingresos: operador frente a contabilidad</h2><span><button type="button" class="boton pequeno secundario" data-mostrar-todo="tabla-cuadre">Ver también las que cuadran</button> <a class="boton excel pequeno" href="{% url 'exportar' 'cuadre' %}?{{ filtros_url }}">Excel</a></span></div>
+    <table id="tabla-cuadre">
+      <thead><tr><th>Línea</th>{% if i.es_grupo %}<th>Hotel</th>{% endif %}{% if i.varios_meses %}<th>Mes</th>{% endif %}<th class="d">Operador</th><th class="d">Contabilidad</th><th class="d">Diferencia</th><th>Causa</th></tr></thead>
+      <tbody>{% for q in i.cuadre %}
+        <tr class="fila-clic {% if q.cuadra %}cuadre-ok oculta{% endif %}" data-clic='{{ q.clic|safe_json }}' data-pagina="cuadre">
+          <td>{{ q.linea }}</td>{% if i.es_grupo %}<td>{{ q.hotel }}</td>{% endif %}{% if i.varios_meses %}<td>{{ q.mes }}</td>{% endif %}
+          <td class="d">{{ q.operador }}</td><td class="d">{{ q.contabilidad }}</td>
+          <td class="d">{% if q.cuadra %}<span class="insignia i-ok">Cuadra</span>{% else %}<span class="mal">{{ q.diferencia }}</span>{% endif %}</td><td>{{ q.causa }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+    {% if not i.diferencias %}<p class="vacio">Todas las líneas de ingreso cuadran.</p>{% endif %}
+  </div>
+  {% if i.cuadre_reservas %}
+  <div class="tarjeta mt tabla-scroll">
+    <div class="cabecera-tabla"><h2>Reservas del PMS frente al informe del operador</h2><span class="suave">Haz clic para ver las reservas</span></div>
     <table>
-      <thead><tr><th>Hotel</th><th class="d">Ingresos</th><th class="d">GOP</th><th class="d">% GOP</th><th class="d">GOP vs ppto</th><th class="d">Ocupación</th><th class="d">ADR</th><th class="d">RevPAR</th><th class="d">Labor cost</th><th class="d">CPOR</th><th class="d">No cuadra</th><th class="d">Desviaciones</th></tr></thead>
-      <tbody>{% for f in i.comparativa %}
-        <tr><td><a href="?hotel={{ f.id }}&amp;mes={{ mes|date:'Y-m' }}&amp;periodo={{ modo }}&amp;p=resumen">{{ f.hotel }}</a></td><td class="d">{{ f.ingresos }}</td><td class="d">{{ f.gop }}</td><td class="d">{{ f.gop_pct }}</td>
-          <td class="d {{ f.gop_vs_ppto.estado }}">{% if f.gop_vs_ppto %}{{ f.gop_vs_ppto.texto }}{% else %}—{% endif %}</td>
-          <td class="d">{{ f.ocupacion }}</td><td class="d">{{ f.adr }}</td><td class="d">{{ f.revpar }}</td><td class="d">{{ f.labor }}</td><td class="d">{{ f.cpor }}</td>
-          <td class="d {% if f.cuadre %}mal{% endif %}">{{ f.cuadre }}</td><td class="d">{{ f.desviaciones }}</td></tr>
+      <thead><tr><th>Hotel</th><th>Mes</th><th class="d">Noches reservas</th><th class="d">Room nights operador</th><th class="d">Dif.</th><th class="d">Alojamiento reservas</th><th class="d">Alojamiento operador</th><th class="d">Dif.</th></tr></thead>
+      <tbody>{% for q in i.cuadre_reservas %}
+        <tr class="fila-clic" data-clic='{{ q.clic|safe_json }}' data-pagina="cuadre"><td>{{ q.hotel }}</td><td>{{ q.mes }}</td><td class="d">{{ q.noches_res }}</td><td class="d">{{ q.noches_op }}</td>
+          <td class="d">{% if q.cuadra %}<span class="insignia i-ok">Cuadra</span>{% else %}<span class="mal">{{ q.dif_noches }}</span>{% endif %}</td>
+          <td class="d">{{ q.ing_res }}</td><td class="d">{{ q.ing_op }}</td><td class="d">{{ q.dif_ing }}</td></tr>
       {% endfor %}</tbody>
     </table>
   </div>
-  <div class="tarjeta"><h2>¿Qué hotel gasta de más de forma estructural?</h2>
-    {% for e in i.estructural %}<div class="alerta"><div class="barra aviso"></div><div><div class="que">{{ e.linea }} · {{ e.hotel }}</div>
-      <div class="cuanto">{{ e.valor }} por room night frente a {{ e.mediana }} en el resto de hoteles: unos {{ e.exceso }} al mes de más.</div>
-      <div class="meta">Mediana de los últimos 3 meses · aviso a partir de +20 %</div></div></div>
-    {% empty %}<p class="vacio">Ninguna partida supera en más de un 20 % a la del resto de hoteles.</p>{% endfor %}
+  {% endif %}
+  <div class="tarjeta mt tabla-scroll">
+    <div class="cabecera-tabla"><h2>¿Los ratios del operador están bien calculados?</h2><span><button type="button" class="boton pequeno secundario" data-mostrar-todo="tabla-ratios">Ver también los correctos</button> <a class="boton excel pequeno" href="{% url 'exportar' 'ratios' %}?{{ filtros_url }}">Excel</a></span></div>
+    <table id="tabla-ratios">
+      <thead><tr><th>Ratio</th>{% if i.es_grupo %}<th>Hotel</th>{% endif %}{% if i.varios_meses %}<th>Mes</th>{% endif %}<th class="d">Operador</th><th class="d">Recalculado</th><th class="d">Diferencia</th><th>Nota</th></tr></thead>
+      <tbody>{% for x in i.ratios %}
+        <tr class="{% if x.correcto %}oculta{% endif %}"><td>{{ x.ratio }}<div class="suave pequeno">{{ x.formula }}</div></td>{% if i.es_grupo %}<td>{{ x.hotel }}</td>{% endif %}{% if i.varios_meses %}<td>{{ x.mes }}</td>{% endif %}
+          <td class="d">{{ x.operador }}</td><td class="d">{{ x.recalculado }}</td>
+          <td class="d">{% if x.correcto %}<span class="insignia i-ok">Correcto</span>{% else %}<span class="aviso">{{ x.diferencia }}</span>{% endif %}</td><td>{{ x.nota }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
   </div>
+  {% include 'portal/_detalle.html' with pagina_d='cuadre' ayuda='Haz clic en una línea para ver sus apuntes o sus reservas.' %}
 </section>
 {% endif %}
 
-<!-- ===================== MÓDULOS OPCIONALES (vista previa) ===================== -->
+{% if 'comparativa' in paginas_visibles %}
+<!-- ===================== COMPARATIVA ===================== -->
+<section class="pagina" id="comparativa">
+  <div class="cabecera-pagina"><h1>¿Qué hotel lo hace mejor?</h1><span class="suave">{{ i.periodo_texto }}</span></div>
+  {% if i.es_grupo %}
+  <div class="rejilla r2">
+    <div class="tarjeta"><h2>% GOP, ocupación y labor cost</h2><div class="lienzo"><canvas data-grafico="comparativa" data-pagina="comparativa"></canvas></div></div>
+    <div class="tarjeta"><h2>GOP por hotel</h2><div class="lienzo"><canvas data-grafico="hoteles" data-pagina="comparativa"></canvas></div></div>
+  </div>
+  <div class="tarjeta mt tabla-scroll">
+    <div class="cabecera-tabla"><h2>Indicadores por hotel</h2><a class="boton excel pequeno" href="{% url 'exportar' 'comparativa' %}?{{ filtros_url }}">Excel</a></div>
+    <table>
+      <thead><tr><th>Hotel</th><th class="d">Ingresos</th><th class="d">GOP</th><th class="d">% GOP</th><th class="d">GOP vs ppto</th><th class="d">Ocupación</th><th class="d">ADR</th><th class="d">RevPAR</th><th class="d">Labor cost</th><th class="d">CPOR</th><th class="d">Sin cuadrar</th></tr></thead>
+      <tbody>{% for h in i.comparativa %}
+        <tr><td><a href="?{{ query }}&amp;hotel={{ h.id }}&amp;p=resumen"><b>{{ h.hotel }}</b></a></td><td class="d">{{ h.ingresos }}</td><td class="d">{{ h.gop }}</td><td class="d">{{ h.gop_pct }}</td>
+          <td class="d">{% if h.gop_vs_ppto %}<span class="{{ h.gop_vs_ppto.estado }}">{{ h.gop_vs_ppto.texto }}</span>{% else %}—{% endif %}</td>
+          <td class="d">{{ h.ocupacion }}</td><td class="d">{{ h.adr }}</td><td class="d">{{ h.revpar }}</td><td class="d">{{ h.labor }}</td><td class="d">{{ h.cpor }}</td>
+          <td class="d">{% if h.cuadre %}<span class="mal">{{ h.cuadre }}</span>{% else %}0{% endif %}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  {% if i.estructural %}
+  <div class="tarjeta mt"><h2>¿Qué hotel gasta de más de forma estructural?</h2>
+    <table><thead><tr><th>Partida · hotel</th><th class="d">€ por room night</th><th class="d">Resto de hoteles</th><th class="d">Exceso al mes</th></tr></thead>
+      <tbody>{% for e in i.estructural %}<tr><td><b>{{ e.linea }} · {{ e.hotel }}</b></td><td class="d">{{ e.valor }}</td><td class="d">{{ e.mediana }}</td><td class="d mal">{{ e.exceso }}</td></tr>{% endfor %}</tbody></table>
+  </div>{% endif %}
+  {% else %}
+  <div class="tarjeta"><p class="vacio">Elige más de un hotel en el filtro para compararlos.</p></div>
+  {% endif %}
+</section>
+{% endif %}
+
 {% include 'portal/_modulos.html' %}
+
+<p class="pie-informe">Cifras calculadas por Cuádralo a partir del informe del operador, los movimientos de Business Central{% if i.hay_reservas %}, las reservas del PMS{% endif %} y el presupuesto. {% if ultima_carga %}Última carga: {{ ultima_carga.creada|date:'d/m/Y H:i' }}.{% endif %}</p>
 
 {{ i.graficos|json_script:"datos-graficos" }}
 {% endwith %}
@@ -229,6 +297,9 @@
 {% endblock %}
 
 {% block scripts %}{% if informe %}{% load static %}
-<script>window.CUADRALO = {pagina: "{{ pagina|escapejs }}", url_interes: "{% url 'interes' %}", csrf: "{{ csrf_token }}"};</script>
+<script>window.CUADRALO = {pagina: "{{ pagina|escapejs }}", url_interes: "{% url 'interes' %}", url_detalle: "{% url 'detalle' %}",
+  query: "{{ query|escapejs }}", csrf: "{{ csrf_token }}"};</script>
+<script src="{% static 'portal/vendor/chart.umd.min.js' %}"></script>
+<script src="{% static 'portal/vendor/chartjs-plugin-datalabels.min.js' %}"></script>
 <script src="{% static 'portal/informe.js' %}"></script>
 {% endif %}{% endblock %}
