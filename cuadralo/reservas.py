@@ -35,55 +35,87 @@ def noches_por_mes(res):
          'Personas-noche', 'Habitaciones']]
 
 
-def por_canal(res_mes, res, hoteles, meses):
-    """Resumen por canal para los hoteles y meses pedidos: reservas, noches, % de noches, ingresos, ADR,
-    antelación media y % de cancelación (las cancelaciones se cuentan por mes de llegada)."""
-    m = res_mes[res_mes['Id hotel'].isin(hoteles) & res_mes['Mes'].isin(meses)]
+DIMENSIONES = ['Id hotel', 'Mes', 'Canal', 'Tipo de canal', 'Segmento', 'Nacionalidad']
+
+
+def agregar_por_mes(res):
+    """Reservas agregadas por hotel, mes de estancia, canal, segmento y país: es lo que guarda el precálculo.
+
+    Reservas = reservas con alguna noche en ese mes (una estancia que cruza de mes cuenta en los dos).
+    """
+    m = noches_por_mes(res)
     if len(m) == 0:
+        return pd.DataFrame(columns=DIMENSIONES + ['Reservas', 'Noches', 'Ingresos', 'Personas-noche'])
+    return m.groupby(DIMENSIONES, as_index=False).agg(
+        Reservas=('Nº reserva', 'nunique'), Noches=('Noches', 'sum'), Ingresos=('Ingresos', 'sum'),
+        **{'Personas-noche': ('Personas-noche', 'sum')})
+
+
+def agregar_llegadas(res):
+    """Por hotel, mes de llegada y canal: estancias, cancelaciones, antelación y noches (para % cancelación y medias)."""
+    if res is None or len(res) == 0:
+        return pd.DataFrame(columns=['Id hotel', 'Mes', 'Canal', 'Estancias', 'Canceladas', 'Suma antelación',
+                                     'Con antelación', 'Noches estancias'])
+    r = res.copy()
+    r['Mes'] = r['Llegada'].dt.to_period('M').dt.to_timestamp()
+    r['Es estancia'] = r['Estancia'].astype(int)
+    r['Es cancelada'] = r['Cancelada'].astype(int)
+    r['Ant'] = r['Antelación (días)'].where(r['Estancia'])
+    r['Noches est'] = r['Noches'].where(r['Estancia'], 0)
+    return r.groupby(['Id hotel', 'Mes', 'Canal'], as_index=False).agg(
+        Estancias=('Es estancia', 'sum'), Canceladas=('Es cancelada', 'sum'),
+        **{'Suma antelación': ('Ant', 'sum'), 'Con antelación': ('Ant', 'count'), 'Noches estancias': ('Noches est', 'sum')})
+
+
+def _sel(df, hoteles, meses, canal=None):
+    if df is None or len(df) == 0:
+        return df
+    f = df[df['Id hotel'].isin(hoteles) & df['Mes'].isin(meses)]
+    return f[f['Canal'].isin(canal)] if canal else f
+
+
+def por_canal(agg, llegadas, hoteles, meses, canal=None):
+    """Resumen por canal: reservas, noches, % de noches, ingresos, ADR, antelación media y % de cancelación
+    (las cancelaciones y la antelación se cuentan por mes de llegada)."""
+    m = _sel(agg, hoteles, meses, canal)
+    if m is None or len(m) == 0:
         return pd.DataFrame()
-    g = m.groupby('Canal').agg(**{'Tipo de canal': ('Tipo de canal', 'first'), 'Reservas': ('Nº reserva', 'nunique'),
+    g = m.groupby('Canal').agg(**{'Tipo de canal': ('Tipo de canal', 'first'), 'Reservas': ('Reservas', 'sum'),
                                   'Noches': ('Noches', 'sum'), 'Ingresos': ('Ingresos', 'sum')})
     g['% noches'] = g['Noches'] / g['Noches'].sum()
     g['% ingresos'] = g['Ingresos'] / g['Ingresos'].sum()
     g['ADR'] = g['Ingresos'] / g['Noches']
-    r = res[res['Id hotel'].isin(hoteles)].copy()
-    r['Mes'] = r['Llegada'].dt.to_period('M').dt.to_timestamp()
-    r = r[r['Mes'].isin(meses)]
-    validas = r[r['Estancia']]
-    g['Antelación media (días)'] = validas.groupby('Canal')['Antelación (días)'].mean()
-    total = r[r['Estancia'] | r['Cancelada']].groupby('Canal').size()
-    canceladas = r[r['Cancelada']].groupby('Canal').size()
-    g['% cancelación'] = (canceladas.reindex(g.index).fillna(0) / total.reindex(g.index)).fillna(0)
+    l = _sel(llegadas, hoteles, meses, canal).groupby('Canal')[['Estancias', 'Canceladas', 'Suma antelación', 'Con antelación']].sum()
+    l = l.reindex(g.index).fillna(0)
+    g['Antelación media (días)'] = (l['Suma antelación'] / l['Con antelación'].replace(0, float('nan')))
+    g['% cancelación'] = (l['Canceladas'] / (l['Estancias'] + l['Canceladas']).replace(0, float('nan'))).fillna(0)
     return g.sort_values('Noches', ascending=False).reset_index()
 
 
-def kpis_reservas(res_mes, res, hoteles, meses):
-    """Reservas, estancia media, personas por habitación, antelación media y % de cancelación del periodo."""
-    m = res_mes[res_mes['Id hotel'].isin(hoteles) & res_mes['Mes'].isin(meses)]
-    r = res[res['Id hotel'].isin(hoteles)].copy() if res is not None and len(res) else pd.DataFrame()
-    if len(m) == 0 or len(r) == 0:
+def kpis_reservas(agg, llegadas, hoteles, meses, canal=None):
+    """Reservas, estancia media, personas por habitación, antelación media, % de cancelación y % de venta directa."""
+    m = _sel(agg, hoteles, meses, canal)
+    l = _sel(llegadas, hoteles, meses, canal)
+    if m is None or len(m) == 0 or l is None or len(l) == 0:
         return {}
-    r['Mes'] = r['Llegada'].dt.to_period('M').dt.to_timestamp()
-    r = r[r['Mes'].isin(meses)]
-    validas, canceladas = r[r['Estancia']], r[r['Cancelada']]
-    directo = m[m['Tipo de canal'] == 'Directo']
+    est, canc = float(l['Estancias'].sum()), float(l['Canceladas'].sum())
+    noches = float(m['Noches'].sum())
     return {
-        'Reservas': int(validas['Nº reserva'].nunique()),
-        'Canceladas': int(len(canceladas)),
-        '% cancelación': len(canceladas) / (len(validas) + len(canceladas)) if len(validas) + len(canceladas) else None,
-        'Estancia media': validas['Noches'].mean() if len(validas) else None,
-        'Antelación media': validas['Antelación (días)'].mean() if len(validas) else None,
-        'Personas por habitación': m['Personas-noche'].sum() / m['Noches'].sum() if m['Noches'].sum() else None,
-        '% directo': directo['Noches'].sum() / m['Noches'].sum() if m['Noches'].sum() else None,
-        'Noches reservas': float(m['Noches'].sum()), 'Ingresos reservas': float(m['Ingresos'].sum()),
+        'Reservas': int(est), 'Canceladas': int(canc),
+        '% cancelación': canc / (est + canc) if est + canc else None,
+        'Estancia media': float(l['Noches estancias'].sum()) / est if est else None,
+        'Antelación media': float(l['Suma antelación'].sum()) / float(l['Con antelación'].sum()) if l['Con antelación'].sum() else None,
+        'Personas por habitación': float(m['Personas-noche'].sum()) / noches if noches else None,
+        '% directo': float(m[m['Tipo de canal'] == 'Directo']['Noches'].sum()) / noches if noches else None,
+        'Noches reservas': noches, 'Ingresos reservas': float(m['Ingresos'].sum()),
     }
 
 
-def cuadre_con_operador(res_mes, act, tolerancia_eur):
+def cuadre_con_operador(agg, act, tolerancia_eur):
     """Por hotel y mes: noches e ingresos de alojamiento según las reservas frente a lo que reporta el operador."""
-    if len(res_mes) == 0:
+    if agg is None or len(agg) == 0:
         return pd.DataFrame()
-    r = res_mes.groupby(['Id hotel', 'Mes']).agg(**{'Noches reservas': ('Noches', 'sum'), 'Ingresos reservas': ('Ingresos', 'sum')})
+    r = agg.groupby(['Id hotel', 'Mes']).agg(**{'Noches reservas': ('Noches', 'sum'), 'Ingresos reservas': ('Ingresos', 'sum')})
     o = act[['Room nights', 'Alojamiento']].rename(columns={'Room nights': 'Noches operador', 'Alojamiento': 'Ingresos operador'})
     c = r.join(o, how='inner')
     c['Dif. noches'] = c['Noches reservas'] - c['Noches operador']

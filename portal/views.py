@@ -7,7 +7,8 @@ from django.core.exceptions import PermissionDenied
 from urllib.parse import urlencode
 
 from django.http import Http404, HttpResponse, JsonResponse
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Sum
+from django.db.models.functions import Abs
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.text import slugify
@@ -17,7 +18,8 @@ from cuadralo import apuntes as apuntes_mod
 from cuadralo import calculos, informe
 from cuadralo import exportar as exportar_xlsx
 from .acceso import perfil_requerido
-from .models import Carga, InteresModulo, Perfil
+from . import precalculo
+from .models import Carga, InteresModulo, MovimientoContable, Perfil, Reserva
 from .procesar import (datos_empresa, leer_configuracion, presupuesto_empresa, procesar_empresa, registrar_carga,
                        reservas_empresa)
 
@@ -40,16 +42,22 @@ def _version(empresa):
 
 
 def obtener_datos(empresa):
+    """Datos de la empresa para el informe: precalculados al procesar (se leen, no se recalculan).
+
+    Si aún no hay precálculo (empresa procesada con una versión anterior), se rehace una vez.
+    """
     version = _version(empresa)
     guardado = _CACHE_DATOS.get(empresa.id)
     if guardado and guardado[0] == version:
         return guardado[1], guardado[2]
-    mov, pms = datos_empresa(empresa)
-    if len(mov) == 0 or len(pms) == 0:
-        return None, None
     cfg = leer_configuracion(empresa)
-    datos = informe.Datos(mov, pms, presupuesto_empresa(empresa), cfg, reservas_empresa(empresa))
-    if not datos.meses:
+    datos = precalculo.cargar(empresa, cfg)
+    if datos is None:
+        if not empresa.cargas.filter(estado='ok').exists():
+            return None, None
+        procesar_empresa(empresa)
+        datos = precalculo.cargar(empresa, cfg)
+    if datos is None or not datos.meses:
         return None, None
     _CACHE_DATOS[empresa.id] = (version, datos, cfg)
     return datos, cfg
@@ -111,10 +119,10 @@ class Seleccion:
         self.mes = meses[-1]
         self.modo = 'acumulado' if g.get('periodo') == 'acumulado' else 'mes'
         # filtros de gastos y de reservas
-        a = datos.apuntes[datos.apuntes['Id hotel'].isin(self.visibles)]
-        self.opciones_ceco = sorted(set(a['Ceco'].replace('', '(sin ceco)')))
+        a = datos.apuntes_agg[datos.apuntes_agg['Id hotel'].isin(self.visibles)]
+        self.opciones_ceco = sorted(set(a['Ceco']))
         self.opciones_proveedor = sorted(set(a['Proveedor'].dropna()) - {''})
-        self.opciones_canal = sorted(set(datos.res['Canal'])) if datos.hay_reservas else []
+        self.opciones_canal = datos.canales
         self.ceco = [x for x in g.getlist('ceco') if x in self.opciones_ceco]
         self.proveedor = [x for x in g.getlist('proveedor') if x in self.opciones_proveedor]
         self.canal = [x for x in g.getlist('canal') if x in self.opciones_canal]
@@ -218,28 +226,29 @@ def detalle(request):
     donde = ', '.join(nombre(h) for h in hoteles) if len(hoteles) < len(sel.visibles) or len(sel.visibles) == 1 else 'todo el grupo'
     tipo = g.get('tipo')
     if tipo == 'facturas':
-        a = datos.apuntes_filtrados(sel.ceco, sel.proveedor)
-        a = a[a['Id hotel'].isin(hoteles) & a['Mes'].isin(meses)]
+        q = MovimientoContable.objects.filter(empresa=request.empresa, hotel__in=hoteles,
+                                              mes__in=[m.date() for m in meses])   # siempre su empresa y sus hoteles
+        if sel.ceco:
+            q = q.filter(ceco__in=['' if c == '(sin ceco)' else c for c in sel.ceco])
+        if sel.proveedor:
+            q = q.filter(proveedor__in=sel.proveedor)
         que = 'todas las líneas'
         if g.get('linea'):
-            a = a[a['Línea'] == g['linea']]
-            que = g['linea']
+            q, que = q.filter(linea=g['linea']), g['linea']
         elif g.get('bloque'):
-            a = a[a['Bloque'] == g['bloque']]
-            que = g['bloque']
-        a = a.reindex(a['Importe sin IVA'].abs().sort_values(ascending=False).index)
-        total = float(a['Importe sin IVA'].sum())
-        filas = [[f'{f:%d/%m/%Y}', nombre(h), doc, ext or '', prov, desc, linea, ceco or '(sin ceco)', informe.eur(imp, 2)]
-                 for f, h, doc, ext, prov, desc, linea, ceco, imp in zip(
-                     a['Fecha de registro'].head(MAX_FILAS_DETALLE), a['Id hotel'], a['Nº documento'], a['Nº documento externo'],
-                     a['Proveedor'], a['Descripción'], a['Línea'], a['Ceco'], a['Importe sin IVA'])]
-        explicacion = [f'{informe.num(len(a))} apuntes de Business Central suman {informe.eur(total, 2)}.',
+            q, que = q.filter(bloque=g['bloque']), g['bloque']
+        tot = q.aggregate(n=Count('id'), total=Sum('importe'))
+        total, n = float(tot['total'] or 0), tot['n']
+        filas = [[f'{x.fecha_registro:%d/%m/%Y}', nombre(x.hotel), x.num_documento, x.num_documento_externo, x.proveedor,
+                  x.descripcion, x.linea, x.ceco or '(sin ceco)', informe.eur(x.importe, 2)]
+                 for x in q.order_by(Abs('importe').desc(), 'id')[:MAX_FILAS_DETALLE]]
+        explicacion = [f'{informe.num(n)} apuntes de Business Central suman {informe.eur(total, 2)}.',
                        'Es la cifra de esta línea en la cuenta de resultados' + (' (con el filtro de ceco o proveedor aplicado).'
                                                                                 if sel.ceco or sel.proveedor else '.')]
         return JsonResponse({'titulo': f'Facturas de {que} · {donde} · {p_txt}', 'explicacion': explicacion,
                              'columnas': ['Fecha', 'Hotel', 'Nº documento', 'Nº factura proveedor', 'Proveedor', 'Descripción',
                                           'Línea', 'Ceco', 'Importe sin IVA'],
-                             'numericas': [8], 'filas': filas, 'total_filas': len(a), 'max_filas': MAX_FILAS_DETALLE,
+                             'numericas': [8], 'filas': filas, 'total_filas': n, 'max_filas': MAX_FILAS_DETALLE,
                              'orden': 'las de mayor importe; el resto, en Excel',
                              'exportar': reverse('apuntes') + '?' + sel.query(**({'linea': g['linea']} if g.get('linea') else {}))})
     if tipo == 'reservas':
@@ -247,26 +256,37 @@ def detalle(request):
             return JsonResponse({'titulo': 'Sin reservas', 'explicacion': ['Todavía no se han cargado reservas del PMS.'],
                                  'columnas': [], 'filas': [], 'total_filas': 0})
         canal = [g['canal_sel']] if g.get('canal_sel') in sel.opciones_canal else sel.canal
+        # totales: de las reservas ya agregadas (cuadran con el informe)
         m = datos.reservas_mes(hoteles, meses, canal)
         if g.get('segmento'):
             m = m[m['Segmento'] == g['segmento']]
         if g.get('nacionalidad'):
             m = m[m['Nacionalidad'] == g['nacionalidad']]
-        res = datos.res.drop_duplicates('Nº reserva').set_index('Nº reserva')
-        m = m.merge(res[['Llegada']], left_on='Nº reserva', right_index=True).sort_values(['Llegada', 'Id hotel'])
-        det = res.loc[m['Nº reserva']]
-        filas = [[num_r, nombre(h), canal_, seg, tarifa, f'{lleg:%d/%m/%Y}', f'{sal:%d/%m/%Y}', int(n), int(p), pais,
-                  informe.eur(ing, 2), f'{int(ant)} días' if ant == ant else '']
-                 for num_r, h, canal_, seg, tarifa, lleg, sal, n, p, pais, ing, ant in zip(
-                     m['Nº reserva'].head(MAX_FILAS_DETALLE), m['Id hotel'], m['Canal'], m['Segmento'], det['Tarifa'],
-                     det['Llegada'], det['Salida'], m['Noches'], det['Personas'], m['Nacionalidad'], m['Ingresos'],
-                     det['Antelación (días)'])]
         noches, ingresos = float(m['Noches'].sum()), float(m['Ingresos'].sum())
+        # filas: consulta a la base de datos, solo estancias que tocan el periodo, paginada
+        inicio, fin = min(meses), max(meses) + pd.offsets.MonthBegin(1)
+        q = Reserva.objects.filter(empresa=request.empresa, hotel__in=hoteles, estancia=True, noches__gt=0,
+                                   llegada__lt=fin.date(), salida__gt=inicio.date())
+        if canal:
+            q = q.filter(canal__in=canal)
+        if g.get('segmento'):
+            q = q.filter(segmento=g['segmento'])
+        if g.get('nacionalidad'):
+            q = q.filter(nacionalidad=g['nacionalidad'])
+        dias_sel = {d.date() for mes in meses for d in pd.date_range(mes, mes + pd.offsets.MonthEnd(0))}
+        filas, total_filas = [], q.count()
+        for x in q.order_by('llegada', 'hotel', 'numero')[:MAX_FILAS_DETALLE]:
+            noches_p = sum(1 for d in pd.date_range(x.llegada, x.salida - pd.Timedelta(days=1)) if d.date() in dias_sel)
+            ing_p = float(x.ingresos) * noches_p / x.noches if x.noches else 0
+            ant = (x.llegada - x.fecha_creacion.date()).days if x.fecha_creacion else None
+            filas.append([x.numero, nombre(x.hotel), x.canal, x.segmento, x.tarifa, f'{x.llegada:%d/%m/%Y}', f'{x.salida:%d/%m/%Y}',
+                          noches_p, x.adultos + x.ninos, x.nacionalidad, informe.eur(ing_p, 2),
+                          f'{ant} días' if ant is not None else ''])
         habitaciones = int(datos.cfg['hoteles'].set_index('Id hotel').loc[hoteles, 'Habitaciones'].sum())
         dias = sum(x.days_in_month for x in meses)
         disponibles = habitaciones * dias
-        explicacion = [f'{informe.num(m["Nº reserva"].nunique())} reservas suman {informe.num(noches)} noches '
-                       f'y {informe.eur(ingresos, 2)} de alojamiento.',
+        explicacion = [f'{informe.num(total_filas)} reservas suman {informe.num(noches)} noches '
+                       f'y {informe.eur(ingresos, 2)} de alojamiento en el periodo.',
                        f'Ocupación = {informe.num(noches)} noches / ({habitaciones} habitaciones × {dias} días) = '
                        f'{informe.pct(noches / disponibles if disponibles else None)}.'
                        if not (canal or g.get('segmento') or g.get('nacionalidad')) else
@@ -278,7 +298,7 @@ def detalle(request):
                              'explicacion': explicacion,
                              'columnas': ['Nº reserva', 'Hotel', 'Canal', 'Segmento', 'Tarifa', 'Llegada', 'Salida',
                                           'Noches del periodo', 'Personas', 'País', 'Ingresos del periodo', 'Antelación'],
-                             'numericas': [7, 8, 10], 'filas': filas, 'total_filas': len(m), 'max_filas': MAX_FILAS_DETALLE,
+                             'numericas': [7, 8, 10], 'filas': filas, 'total_filas': total_filas, 'max_filas': MAX_FILAS_DETALLE,
                              'orden': 'por fecha de llegada'})
     raise Http404
 
@@ -336,9 +356,10 @@ def apuntes(request):
     sel = Seleccion(request)
     if sel.datos is None:
         return render(request, 'portal/apuntes.html', contexto)
-    lineas = apuntes_mod.preparar(calculos.asignar_lineas(sel.datos.mov, sel.cfg))
-    lineas = lineas[lineas['Id hotel'].isin(sel.visibles)]          # nunca apuntes de hoteles que no puede ver
     filtros, por = _filtros_apuntes(request, sel)
+    # Se leen de la base de datos solo los apuntes de sus hoteles y de las fechas pedidas (y las mismas un año antes)
+    desde_aa = filtros['desde'] - pd.DateOffset(years=1) if filtros['desde'] is not None else None
+    lineas = apuntes_mod.preparar(precalculo.apuntes_rango(empresa, sel.hoteles, desde_aa, filtros['hasta']))
     actual = apuntes_mod.filtrar(lineas, sel.hoteles, **filtros)
     filtros_aa = {**filtros, 'desde': filtros['desde'] - pd.DateOffset(years=1) if filtros['desde'] is not None else None,
                   'hasta': filtros['hasta'] - pd.DateOffset(years=1) if filtros['hasta'] is not None else None}
@@ -361,14 +382,13 @@ def apuntes(request):
         return _excel(contenido, f'Cuadralo_apuntes_{slugify(titulo)}_{filtros["desde"]:%Y-%m-%d}.xlsx'
                       if filtros['desde'] is not None else f'Cuadralo_apuntes_{slugify(titulo)}.xlsx')
 
-    visibles_sel = lineas[lineas['Id hotel'].isin(sel.hoteles)]
     est = sel.cfg['estructura_informe']
     max_filas = 500
     contexto.update(sel.contexto())
     contexto.update({
         'sin_datos': False, 'f': filtros, 'por': por, 'agrupaciones': [(k, v[1]) for k, v in apuntes_mod.AGRUPACIONES.items()],
-        'proveedores': sorted(visibles_sel['Proveedor'].dropna().unique()),
-        'cecos': sorted(visibles_sel['Ceco'].dropna().unique()),
+        'proveedores': sel.opciones_proveedor,
+        'cecos': sel.opciones_ceco,
         'lineas': [l for l in est[est['Tipo'] == 'Detalle']['Línea'] if l != 'Reserva FF&E'],
         'bloques': list(dict.fromkeys(est[est['Tipo'] == 'Detalle']['Bloque'])),
         'resumen': resumen.to_dict('records'), 'col_resumen': apuntes_mod.AGRUPACIONES[por][1],

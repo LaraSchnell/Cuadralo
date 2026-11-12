@@ -30,7 +30,7 @@ def datos():
 
 
 def _desv(datos, hotel, linea):
-    filas = reglas.desviaciones(datos.mov, datos.det_real, datos.det_ppto, datos.act, datos.cuadre, datos.cfg, [hotel], OCT)
+    filas = datos.desviaciones(hotel, OCT)
     fila = next(f for f in filas if f['Línea'] == linea)
     return fila, {c['tipo']: c for c in fila['Causas']}
 

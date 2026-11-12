@@ -194,12 +194,35 @@ def _filas(df, hoteles, meses):
     return df[h.isin(hoteles) & m.isin(meses)]
 
 
+def calcular_desviaciones(hist, det_real, det_ppto, act, cuadre, cfg, hotel, mes):
+    """Desviaciones de un hotel y un mes con sus causas y las 8 facturas más grandes de cada línea.
+
+    hist: apuntes del hotel con su línea del informe (al menos los 13 meses hasta `mes`).
+    """
+    desv = r.desviaciones(None, det_real, det_ppto, act, cuadre, cfg, [hotel], mes, hist=hist)
+    apuntes = hist[(hist['Mes'] == mes) & (hist['Id hotel'] == hotel)]
+    for d in desv:
+        ap = apuntes[apuntes['Línea'] == d['Línea']]
+        ap = ap.reindex(ap['Importe sin IVA'].abs().sort_values(ascending=False).index).head(8)
+        d['Apuntes'] = [{'fecha': f'{a:%d/%m/%Y}', 'doc': doc, 'proveedor': prov, 'descripcion': desc, 'importe': eur(imp, 2)}
+                        for a, doc, prov, desc, imp in zip(ap['Fecha de registro'], ap['Nº documento'], ap['Proveedor'],
+                                                           ap['Descripción'], ap['Importe sin IVA'])]
+    return desv
+
+
+CLAVES_PRECALCULO = ['det_real', 'det_ppto', 'act', 'cuadre', 'ratios', 'res_agg', 'res_llegadas', 'apuntes_agg']
+
+
 class Datos:
-    """Todo lo calculado una vez para una empresa: se reutiliza en todas las páginas y selecciones."""
+    """Todo lo calculado de una empresa: se reutiliza en todas las páginas y selecciones.
+
+    Dos formas de crearlo:
+    - Datos(mov, pms, pres, cfg, res): calcula todo a partir del modelo común (al procesar las cargas y en las pruebas).
+    - Datos.desde_precalculo(tablas, cfg, fuente_desviaciones): solo carga tablas ya calculadas (la web).
+    """
 
     def __init__(self, mov, pms, pres, cfg, res=None):
         self.cfg = cfg
-        self.mov = mov
         self.apuntes = c.asignar_lineas(mov, cfg)
         self.det_real = self.apuntes.pivot_table(index=['Id hotel', 'Mes'], columns='Línea',
                                                  values='Importe sin IVA', aggfunc='sum').fillna(0.0)
@@ -207,26 +230,50 @@ class Datos:
         self.act = c.actividad_completa(pms, cfg)
         self.cuadre = c.cuadre(mov, pms, cfg)
         self.ratios = c.comprobar_ratios(pms, cfg)
+        res = res if res is not None else pd.DataFrame()
+        self.res_agg = rv.agregar_por_mes(res)
+        self.res_llegadas = rv.agregar_llegadas(res)
+        a = self.apuntes.assign(Ceco=self.apuntes['Ceco'].replace('', '(sin ceco)'))
+        self.apuntes_agg = a.groupby(['Id hotel', 'Mes', 'Línea', 'Bloque', 'Ceco', 'Proveedor'], as_index=False).agg(
+            **{'Importe sin IVA': ('Importe sin IVA', 'sum'), 'Apuntes': ('Importe sin IVA', 'size')})
+        self._fuente_desviaciones = lambda h, m: calcular_desviaciones(self.apuntes, self.det_real, self.det_ppto, self.act,
+                                                                       self.cuadre, self.cfg, h, m)
+        self._preparar()
+
+    @classmethod
+    def desde_precalculo(cls, tablas, cfg, fuente_desviaciones):
+        d = cls.__new__(cls)
+        d.cfg = cfg
+        for k in CLAVES_PRECALCULO:
+            setattr(d, k, tablas[k])
+        d._fuente_desviaciones = fuente_desviaciones
+        d._preparar()
+        return d
+
+    def tablas(self):
+        """Lo que se guarda en el precálculo."""
+        return {k: getattr(self, k) for k in CLAVES_PRECALCULO}
+
+    def _preparar(self):
+        cfg = self.cfg
         self.nombres = cfg['hoteles'].set_index('Id hotel')['Hotel'].to_dict()
         self.meses = sorted(set(self.act.index.get_level_values('Mes')) & set(self.det_real.index.get_level_values('Mes')),
-                            reverse=True)
-        self.res = res if res is not None else pd.DataFrame()
-        self.res_mes = rv.noches_por_mes(self.res)
-        self.cuadre_res = rv.cuadre_con_operador(self.res_mes, self.act, float(c.parametro(cfg, 'tolerancia_cuadre_eur'))) \
-            if len(self.res_mes) else pd.DataFrame()
+                            reverse=True) if len(self.act) and len(self.det_real) else []
+        self.cuadre_res = rv.cuadre_con_operador(self.res_agg, self.act, float(c.parametro(cfg, 'tolerancia_cuadre_eur'))) \
+            if len(self.res_agg) else pd.DataFrame()
+        self.canales = sorted(set(self.res_agg['Canal'])) if len(self.res_agg) else []
         self._filtrados = {}
         self._desviaciones = {}
+
+    @property
+    def hay_reservas(self):
+        return len(self.res_agg) > 0
 
     def desviaciones(self, hotel, mes):
         """Desviaciones de un hotel y un mes (se calculan una vez y se guardan: no dependen de los filtros)."""
         if (hotel, mes) not in self._desviaciones:
-            self._desviaciones[(hotel, mes)] = r.desviaciones(self.mov, self.det_real, self.det_ppto, self.act, self.cuadre,
-                                                              self.cfg, [hotel], mes, hist=self.apuntes)
+            self._desviaciones[(hotel, mes)] = self._fuente_desviaciones(hotel, mes) if (hotel, mes) in self.det_real.index else []
         return self._desviaciones[(hotel, mes)]
-
-    @property
-    def hay_reservas(self):
-        return len(self.res_mes) > 0
 
     def resultados(self, hoteles, meses, cual='real'):
         det = self.det_real if cual == 'real' else self.det_ppto
@@ -268,36 +315,23 @@ class Datos:
                 out[m] = k
         return out
 
-    def apuntes_filtrados(self, ceco=None, proveedor=None):
-        a = self.apuntes
-        if ceco:
-            a = a[a['Ceco'].replace('', '(sin ceco)').isin(ceco)]
-        if proveedor:
-            a = a[a['Proveedor'].isin(proveedor)]
-        return a
-
     def det_filtrado(self, ceco=None, proveedor=None):
         """Detalle real por hotel, mes y línea con solo los apuntes de esos cecos o proveedores."""
         if not ceco and not proveedor:
             return self.det_real
         clave = (tuple(ceco or ()), tuple(proveedor or ()))
         if clave not in self._filtrados:
-            a = self.apuntes_filtrados(ceco, proveedor)
+            a = self.apuntes_agg
+            if ceco:
+                a = a[a['Ceco'].isin(ceco)]
+            if proveedor:
+                a = a[a['Proveedor'].isin(proveedor)]
             self._filtrados[clave] = a.pivot_table(index=['Id hotel', 'Mes'], columns='Línea', values='Importe sin IVA',
                                                    aggfunc='sum').fillna(0.0) if len(a) else pd.DataFrame()
         return self._filtrados[clave]
 
     def reservas_mes(self, hoteles, meses, canal=None):
-        m = self.res_mes
-        if len(m) == 0:
-            return m
-        m = m[m['Id hotel'].isin(hoteles) & m['Mes'].isin(meses)]
-        return m[m['Canal'].isin(canal)] if canal else m
-
-    def reservas_filtradas(self, canal=None):
-        if len(self.res) == 0 or not canal:
-            return self.res
-        return self.res[self.res['Canal'].isin(canal)]
+        return rv._sel(self.res_agg, hoteles, meses, canal) if self.hay_reservas else self.res_agg
 
 
 # ---------------------------------------------------------------- textos de causas
@@ -446,7 +480,6 @@ def _desviaciones(datos, hoteles, meses, nombre, nombre_visible):
     desviaciones, falsas = [], []
     for mes in meses:
         desv = [d for h in hoteles for d in datos.desviaciones(h, mes)]
-        apuntes = datos.apuntes[datos.apuntes['Mes'] == mes]
         for d in desv:
             referencia = d['Referencia']
             causas = d['Causas']
@@ -456,8 +489,6 @@ def _desviaciones(datos, hoteles, meses, nombre, nombre_visible):
             if not textos:
                 textos = [{'etiqueta': 'Sin causa', 'texto': 'Ninguna regla encuentra la causa en las facturas: revisar a mano.',
                            'proveedor': '', 'documento': '', 'importe': ''}]
-            ap = apuntes[(apuntes['Id hotel'] == d['Id hotel']) & (apuntes['Línea'] == d['Línea'])]
-            ap = ap.reindex(ap['Importe sin IVA'].abs().sort_values(ascending=False).index).head(8)
             var = d['Var ppto'] if referencia == 'presupuesto' else d['Var AA']
             fila = {
                 'hotel': nombre(d['Id hotel']), 'hotel_id': d['Id hotel'], 'linea': d['Línea'], 'ingreso': d['Ingreso'],
@@ -470,8 +501,7 @@ def _desviaciones(datos, hoteles, meses, nombre, nombre_visible):
                 'tiene_causa_factura': any(x['tipo'] in CAUSAS_DE_FACTURA for x in causas),
                 'sin_causa': not causas, 'impacto': abs(d['Dif ref']),
                 'clic': {'tipo': 'facturas', 'linea': d['Línea'], 'mes': f'{mes:%Y-%m}', 'hotel': d['Id hotel']},
-                'apuntes': [{'fecha': f'{a["Fecha de registro"]:%d/%m/%Y}', 'doc': a['Nº documento'], 'proveedor': a['Proveedor'],
-                             'descripcion': a['Descripción'], 'importe': eur(a['Importe sin IVA'], 2)} for _, a in ap.iterrows()],
+                'apuntes': d.get('Apuntes', []),
             }
             (falsas if d['Falsa alarma'] else desviaciones).append(fila)
     desviaciones.sort(key=lambda x: -x['impacto'])
@@ -678,11 +708,9 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes', filtros=None)
     # ---- reservas: canales, perfil y cuadre con el operador
     canales_tabla, g_canales, g_segmentos, g_paises, k_res, k_res_aa = [], None, None, None, {}, {}
     if datos.hay_reservas:
-        res_f = datos.reservas_filtradas(canal)
-        res_mes_f = datos.res_mes[datos.res_mes['Canal'].isin(canal)] if canal else datos.res_mes
-        tabla = rv.por_canal(res_mes_f, res_f, hoteles, periodo)
-        k_res = rv.kpis_reservas(res_mes_f, res_f, hoteles, periodo)
-        k_res_aa = rv.kpis_reservas(res_mes_f, res_f, hoteles, periodo_aa)
+        tabla = rv.por_canal(datos.res_agg, datos.res_llegadas, hoteles, periodo, canal)
+        k_res = rv.kpis_reservas(datos.res_agg, datos.res_llegadas, hoteles, periodo, canal)
+        k_res_aa = rv.kpis_reservas(datos.res_agg, datos.res_llegadas, hoteles, periodo_aa, canal)
         if len(tabla):
             canales_tabla = [{'canal': x['Canal'], 'tipo': x['Tipo de canal'], 'reservas': num(x['Reservas']),
                               'noches': num(x['Noches']), 'pct_noches': pct(x['% noches']), 'ingresos': eur(x['Ingresos']),

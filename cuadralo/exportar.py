@@ -180,7 +180,7 @@ def tabla_ratios(datos, hoteles, mes):
 def tabla_desviaciones(datos, hoteles, mes, visibles):
     nombre = lambda h: datos.nombres.get(h, h)
     nv = lambda h: nombre(h) if h in visibles else 'otro hotel del grupo'
-    desv = r.desviaciones(datos.mov, datos.det_real, datos.det_ppto, datos.act, datos.cuadre, datos.cfg, hoteles, mes)
+    desv = [d for h in hoteles for d in datos.desviaciones(h, mes)]
     filas = []
     for d in sorted(desv, key=lambda x: -abs(x['Dif ref'])):
         causas = d['Causas'] or [{'tipo': 'Sin causa'}]

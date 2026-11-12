@@ -21,7 +21,13 @@ Un hotel grande puede tener 20.000-50.000 apuntes al mes (hasta ~1,8 millones de
 6. **Paginación y filtros en la base de datos**: ninguna tabla de apuntes carga todas las filas en memoria ni en el navegador.
 7. **Prueba con un hotel gigante** ficticio (50.000 apuntes al mes, 34 meses) antes de dar por terminado el paso 3. Objetivo: subir y procesar un mes < 2 min; abrir informe y apuntes < 2 s.
 
-Estado (12 nov 2026): cumplidos 1, 2 y 4. Parcial: los datos calculados de cada empresa se guardan en memoria del proceso (portal/views.py, obtener_datos) y las reservas se cargan de forma incremental. Pendientes 3, 5, 6 y 7: la primera página tras una carga recalcula el informe, y cada subida reprocesa el resto de archivos en la propia petición.
+Estado (12 nov 2026, tarde): cumplidos 1, 2, 4 y 5 (precálculo en portal/precalculo.py: al procesar se guardan las tablas del informe en ResultadoEmpresa y las desviaciones por hotel y mes en ResultadoDesviacion; la web solo las lee). 6 en parte: el detalle de facturas y reservas y la página de apuntes filtran y paginan en la base de datos. Pendientes 3 (procesado en segundo plano) y 7 (hotel gigante).
+
+## Aislamiento entre empresas (lo más importante del producto)
+- La empresa sale SIEMPRE del perfil del usuario (portal/acceso.py), nunca de la URL. Toda consulta a tablas de clientes filtra por `empresa=request.empresa`.
+- Los hoteles visibles salen del perfil (director de hotel = solo el suyo); lo que llega por la URL se valida contra esa lista.
+- tests/test_paso6_aislamiento.py recorre todas las URLs (páginas, detalle, apuntes, exportaciones) como otra empresa y como director de hotel. Cualquier URL nueva se añade ahí.
+- Pendiente: seguridad por filas (row-level security) en Azure SQL como segunda barrera, probada antes en una base de datos de pruebas.
 
 ## Documentación de referencia (en Google Drive de Lara)
 - `06_arquitectura_mvp`: arquitectura, flujo, páginas del informe, fases.

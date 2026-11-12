@@ -115,12 +115,18 @@ class MovimientoContable(models.Model):
     proveedor = models.CharField(max_length=200)
     finca = models.CharField(max_length=20)
     ceco = models.CharField(max_length=20, blank=True)
+    # Asignados al procesar (con el plan de cuentas de la empresa): permiten filtrar en la base de datos
+    hotel = models.CharField(max_length=20, blank=True, default='')
+    mes = models.DateField(null=True)
+    linea = models.CharField(max_length=80, blank=True, default='')
+    bloque = models.CharField(max_length=60, blank=True, default='')
 
     class Meta:
         # Índices por empresa, hotel (finca), mes y proveedor: ver "Requisitos de rendimiento" en CLAUDE.md.
         indexes = [models.Index(fields=['empresa', 'fecha_registro']),
                    models.Index(fields=['empresa', 'finca', 'fecha_registro']),
-                   models.Index(fields=['empresa', 'proveedor'])]
+                   models.Index(fields=['empresa', 'proveedor']),
+                   models.Index(fields=['empresa', 'hotel', 'mes', 'linea'])]
 
 
 class FilaOperador(models.Model):
@@ -181,3 +187,31 @@ class Reserva(models.Model):
     class Meta:
         indexes = [models.Index(fields=['empresa', 'hotel', 'llegada']),
                    models.Index(fields=['empresa', 'canal'])]
+
+
+# ---------- Resultados precalculados (se rehacen cada vez que se procesan las cargas de la empresa) ----------
+
+class ResultadoEmpresa(models.Model):
+    """Tablas ya calculadas de una empresa (detalle contable agregado, actividad, cuadre, ratios, reservas agregadas).
+
+    La web las lee tal cual: no vuelve a leer los apuntes ni a recalcular el histórico al abrir una página.
+    """
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
+    clave = models.CharField(max_length=40)
+    contenido = models.BinaryField()
+    version = models.CharField(max_length=40)
+    creado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [('empresa', 'clave')]
+
+
+class ResultadoDesviacion(models.Model):
+    """Desviaciones de un hotel y un mes, con sus causas: se calculan la primera vez que se piden y se guardan."""
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
+    hotel = models.CharField(max_length=20)
+    mes = models.DateField()
+    contenido = models.BinaryField()
+
+    class Meta:
+        unique_together = [('empresa', 'hotel', 'mes')]

@@ -5,7 +5,8 @@ from decimal import Decimal
 import pandas as pd
 from django.db import transaction
 
-from cuadralo import calculos, normalizar
+from cuadralo import calculos, informe, normalizar
+from . import precalculo
 from .models import Carga, FilaOperador, FilaPresupuesto, MovimientoContable, Reserva
 
 TAMANO_LOTE = 1000  # filas por inserción masiva; mssql-django reparte cada lote para no pasar de 2.100 parámetros
@@ -57,8 +58,9 @@ def procesar_empresa(empresa):
         else:
             res = normalizar.normalizar_reservas([_abrir(c.archivo, c.nombre_original) for c in res_cargas], cfg) \
                 if res_cargas else pd.DataFrame()
+        lineas = None
         if len(mov):
-            calculos.asignar_lineas(mov, cfg)  # falla si hay cuentas sin línea en el plan de cuentas
+            lineas = calculos.asignar_lineas(mov, cfg)  # falla si hay cuentas sin línea en el plan de cuentas
             fincas = set(mov['Finca']) - set(cfg['hoteles']['Finca'])
             if fincas:
                 raise normalizar.ErrorDeCarga(f'Fincas que no están en la configuración: {sorted(fincas)}')
@@ -86,11 +88,13 @@ def procesar_empresa(empresa):
                 empresa=empresa, fecha_registro=f_reg.date(), fecha_documento=f_doc.date(),
                 num_documento=_texto(n_doc), num_documento_externo=_texto(n_ext), cuenta=str(cuenta),
                 descripcion=_texto(desc)[:255], importe=_d(imp), iva=_d(iva), proveedor=_texto(prov),
-                finca=_texto(finca), ceco=_texto(ceco))
-                for f_reg, f_doc, n_doc, n_ext, cuenta, desc, imp, iva, prov, finca, ceco in zip(
+                finca=_texto(finca), ceco=_texto(ceco), hotel=_texto(hotel), mes=mes_.date(), linea=_texto(linea),
+                bloque=_texto(bloque))
+                for f_reg, f_doc, n_doc, n_ext, cuenta, desc, imp, iva, prov, finca, ceco, hotel, mes_, linea, bloque in zip(
                     mov['Fecha de registro'], mov['Fecha de emisión del documento'], mov['Nº documento'],
                     mov['Nº documento externo'], mov['Cuenta contable'], mov['Descripción'],
-                    mov['Importe sin IVA'], mov['IVA'], mov['Proveedor'], mov['Finca'], mov['Ceco'])],
+                    mov['Importe sin IVA'], mov['IVA'], mov['Proveedor'], mov['Finca'], mov['Ceco'],
+                    lineas['Id hotel'], lineas['Mes'], lineas['Línea'], lineas['Bloque'])],
                 batch_size=TAMANO_LOTE)
         if len(pms):
             FilaOperador.objects.bulk_create([FilaOperador(
@@ -126,6 +130,15 @@ def procesar_empresa(empresa):
             if c.estado != 'ok':
                 c.estado, c.mensaje = 'ok', ''
                 c.save(update_fields=['estado', 'mensaje'])
+    # Precálculo: las tablas del informe se calculan aquí una vez; la web solo las lee.
+    if len(mov) and len(pms):
+        res_todas = res if (res is not None and not incremental) else reservas_empresa(empresa)
+        precalculo.guardar(empresa, informe.Datos(mov, pms, pres, cfg, res_todas))
+        # Las desviaciones de los últimos 3 meses se dejan calculadas (las demás, la primera vez que se piden)
+        datos = precalculo.cargar(empresa, cfg)
+        for mes in datos.meses[:3]:
+            for hotel in datos.nombres:
+                datos.desviaciones(hotel, mes)
     n_res = Reserva.objects.filter(empresa=empresa).count()
     return True, (f'{len(mov)} movimientos, {len(pms)} filas del operador, {len(pres)} de presupuesto'
                   f' y {n_res} reservas procesados.')

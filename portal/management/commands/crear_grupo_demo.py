@@ -18,6 +18,7 @@ from django.core.files import File
 from django.core.management.base import BaseCommand, CommandError
 
 from portal.models import Carga, Empresa, Perfil
+from portal import precalculo
 from portal.procesar import procesar_empresa, registrar_carga
 
 USUARIOS = [
@@ -68,7 +69,11 @@ class Command(BaseCommand):
         ya = set(empresa.cargas.values_list('tipo', flat=True))
         faltan = {t for t, _ in Carga.TIPOS} - ya
         if not faltan:
-            self.stdout.write('El Grupo Demo ya tiene datos cargados: no se vuelven a cargar.')
+            if precalculo.hay_precalculo(empresa):
+                self.stdout.write('El Grupo Demo ya tiene datos cargados: no se vuelven a cargar.')
+            else:   # datos de una versión anterior: se reprocesan para guardar el precálculo
+                ok, mensaje = procesar_empresa(empresa)
+                self.stdout.write((self.style.SUCCESS if ok else self.style.ERROR)(mensaje))
             return
         contable = get_user_model().objects.get(username='contable.demo')
         base = Path(settings.DATOS_DEMO)

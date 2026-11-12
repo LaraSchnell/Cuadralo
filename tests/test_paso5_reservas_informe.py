@@ -35,7 +35,7 @@ def test_reservas_cuadran_con_el_operador(cfg):
     res = normalizar_reservas(archivos_de(RAIZ / 'datos_origen', 'reservas'), cfg)
     pms = normalizar_operador(archivos_de(RAIZ / 'datos_origen', 'operador'), cfg)
     from cuadralo import calculos
-    q = reservas.cuadre_con_operador(reservas.noches_por_mes(res), calculos.actividad_completa(pms, cfg), 1.0)
+    q = reservas.cuadre_con_operador(reservas.agregar_por_mes(res), calculos.actividad_completa(pms, cfg), 1.0)
     assert len(q) == 4 * 34 and q['Cuadra'].all()
 
 
