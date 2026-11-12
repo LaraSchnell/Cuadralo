@@ -19,6 +19,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from portal.models import Carga, Empresa, Perfil
 from portal import precalculo
+from portal.seguridad_bd import contexto_interno
 from portal.procesar import procesar_empresa, registrar_carga
 
 USUARIOS = [
@@ -35,6 +36,11 @@ class Command(BaseCommand):
         parser.add_argument('--hasta', help='Carga los datos de origen hasta este mes (AAAA-MM), ambos incluidos.')
 
     def handle(self, *args, **opciones):
+        # Comando interno: con la seguridad por filas activa necesita ver y escribir en todas las empresas.
+        with contexto_interno():
+            self._handle(**opciones)
+
+    def _handle(self, **opciones):
         empresas = {}
         for slug, nombre in [('grupo-demo', 'Grupo Demo Cuádralo'), ('prueba-aislamiento', 'Hotel Prueba Aislamiento')]:
             empresa, creada = Empresa.objects.get_or_create(slug=slug, defaults={'nombre': nombre, 'datos_ficticios': True})

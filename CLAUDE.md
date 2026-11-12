@@ -27,7 +27,7 @@ Estado (12 nov 2026, tarde): cumplidos 1, 2, 4 y 5 (precálculo en portal/precal
 - La empresa sale SIEMPRE del perfil del usuario (portal/acceso.py), nunca de la URL. Toda consulta a tablas de clientes filtra por `empresa=request.empresa`.
 - Los hoteles visibles salen del perfil (director de hotel = solo el suyo); lo que llega por la URL se valida contra esa lista.
 - tests/test_paso6_aislamiento.py recorre todas las URLs (páginas, detalle, apuntes, exportaciones) como otra empresa y como director de hotel. Cualquier URL nueva se añade ahí.
-- Pendiente: seguridad por filas (row-level security) en Azure SQL como segunda barrera, probada antes en una base de datos de pruebas.
+- Segunda barrera: seguridad por filas (row-level security) en Azure SQL (portal/seguridad_bd.py, migración 0006, infra/rls/LEEME.md). ContextoEmpresaMiddleware declara la empresa del usuario en cada petición; sin empresa en la sesión, Azure SQL no devuelve ninguna fila. Tabla nueva con empresa → añadirla a TABLAS_PROTEGIDAS + migración. Tareas fuera de una petición (comandos, segundo plano) → `with contexto_empresa(id)` o `with contexto_interno()`. tests/test_paso7_seguridad_filas.py lo vigila. Estado: rama `seguridad-filas`, pendiente de probar con infra/rls/2_probar.sql en una copia de la base de datos y de unir a main después de la demo del 18 nov.
 
 ## Documentación de referencia (en Google Drive de Lara)
 - `06_arquitectura_mvp`: arquitectura, flujo, páginas del informe, fases.
