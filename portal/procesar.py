@@ -8,6 +8,8 @@ from django.db import transaction
 from cuadralo import calculos, normalizar
 from .models import Carga, FilaOperador, FilaPresupuesto, MovimientoContable
 
+TAMANO_LOTE = 1000  # filas por inserción masiva; mssql-django reparte cada lote para no pasar de 2.100 parámetros
+
 
 def _abrir(field_file, nombre):
     """Copia el archivo (local o Blob) a memoria con su nombre original, como lo espera el normalizador."""
@@ -56,25 +58,37 @@ def procesar_empresa(empresa):
             c.save(update_fields=['estado', 'mensaje'])
         return False, str(e)
 
+    # Las filas se construyen recorriendo columnas con zip (no con iterrows, que es unas 10 veces más lento)
+    # y se guardan con inserción masiva (bulk_create). Ver "Requisitos de rendimiento" en CLAUDE.md.
     with transaction.atomic():
         MovimientoContable.objects.filter(empresa=empresa).delete()
         FilaOperador.objects.filter(empresa=empresa).delete()
         FilaPresupuesto.objects.filter(empresa=empresa).delete()
-        MovimientoContable.objects.bulk_create([MovimientoContable(
-            empresa=empresa, fecha_registro=r['Fecha de registro'].date(),
-            fecha_documento=r['Fecha de emisión del documento'].date(),
-            num_documento=_texto(r['Nº documento']), num_documento_externo=_texto(r['Nº documento externo']),
-            cuenta=str(r['Cuenta contable']), descripcion=_texto(r['Descripción'])[:255],
-            importe=_d(r['Importe sin IVA']), iva=_d(r['IVA']), proveedor=_texto(r['Proveedor']),
-            finca=_texto(r['Finca']), ceco=_texto(r['Ceco'])) for _, r in mov.iterrows()], batch_size=500)
-        FilaOperador.objects.bulk_create([FilaOperador(
-            empresa=empresa, mes=r['Fecha'].date(), hotel=r['Id hotel'], departamento=r['Departamento'],
-            concepto=r['Concepto'], medida=r['Medida'], valor=_d(r['Valor'], 4),
-            linea_informe=_texto(r['Línea del informe']), columna_operador=r['Columna del operador'])
-            for _, r in pms.iterrows()], batch_size=500)
-        FilaPresupuesto.objects.bulk_create([FilaPresupuesto(
-            empresa=empresa, mes=r['Fecha'].date(), hotel=r['Id hotel'], linea=r['Línea'], tipo=r['Tipo'],
-            importe=_d(r['Presupuesto'])) for _, r in pres.iterrows()], batch_size=500)
+        if len(mov):
+            MovimientoContable.objects.bulk_create([MovimientoContable(
+                empresa=empresa, fecha_registro=f_reg.date(), fecha_documento=f_doc.date(),
+                num_documento=_texto(n_doc), num_documento_externo=_texto(n_ext), cuenta=str(cuenta),
+                descripcion=_texto(desc)[:255], importe=_d(imp), iva=_d(iva), proveedor=_texto(prov),
+                finca=_texto(finca), ceco=_texto(ceco))
+                for f_reg, f_doc, n_doc, n_ext, cuenta, desc, imp, iva, prov, finca, ceco in zip(
+                    mov['Fecha de registro'], mov['Fecha de emisión del documento'], mov['Nº documento'],
+                    mov['Nº documento externo'], mov['Cuenta contable'], mov['Descripción'],
+                    mov['Importe sin IVA'], mov['IVA'], mov['Proveedor'], mov['Finca'], mov['Ceco'])],
+                batch_size=TAMANO_LOTE)
+        if len(pms):
+            FilaOperador.objects.bulk_create([FilaOperador(
+                empresa=empresa, mes=fecha.date(), hotel=hotel, departamento=dep, concepto=concepto,
+                medida=medida, valor=_d(valor, 4), linea_informe=_texto(linea), columna_operador=columna)
+                for fecha, hotel, dep, concepto, medida, valor, linea, columna in zip(
+                    pms['Fecha'], pms['Id hotel'], pms['Departamento'], pms['Concepto'], pms['Medida'],
+                    pms['Valor'], pms['Línea del informe'], pms['Columna del operador'])],
+                batch_size=TAMANO_LOTE)
+        if len(pres):
+            FilaPresupuesto.objects.bulk_create([FilaPresupuesto(
+                empresa=empresa, mes=fecha.date(), hotel=hotel, linea=linea, tipo=tipo, importe=_d(importe))
+                for fecha, hotel, linea, tipo, importe in zip(
+                    pres['Fecha'], pres['Id hotel'], pres['Línea'], pres['Tipo'], pres['Presupuesto'])],
+                batch_size=TAMANO_LOTE)
         for c in vigentes:
             if c.estado != 'ok':
                 c.estado, c.mensaje = 'ok', ''

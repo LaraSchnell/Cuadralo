@@ -1,6 +1,7 @@
 Django>=5.2,<5.3
 pandas>=2.2
 openpyxl>=3.1
+python-calamine>=0.2
 whitenoise>=6.7
 gunicorn>=23.0
 django-storages[azure]>=1.14

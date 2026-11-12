@@ -11,6 +11,18 @@ Responde y escribe comentarios, mensajes de commit y textos de la interfaz en es
 5. **En producción, Azure OpenAI (zona UE) solo redacta** los textos de las desviaciones y los emails a partir del resultado de las reglas. Nunca genera cifras ni HTML.
 6. Antes de dar algo por terminado, ejecuta las pruebas (`pytest`) y comprueba que detectan los 11 casos de `casos_plantados`.
 
+## Requisitos de rendimiento (obligatorios en todo el código nuevo)
+Un hotel grande puede tener 20.000-50.000 apuntes al mes (hasta ~1,8 millones de filas en 3 años). El código tiene que aguantarlo:
+1. **Inserción masiva**: guardar con `bulk_create` (o bulk insert / `fast_executemany`), nunca fila a fila. Construir las filas con `zip` sobre columnas, nunca con `iterrows`.
+2. **Lector rápido de Excel**: `pd.read_excel(..., engine='calamine')` (constante `MOTOR_EXCEL` en `normalizar.py`).
+3. **Procesado en segundo plano**: subir → "Procesando…" → aviso al terminar. Nada que pueda tardar más de unos segundos se ejecuta mientras la petición web espera (App Service corta a los ~4 minutos).
+4. **Índices** por empresa, hotel y mes en todas las tablas de hechos, y por proveedor en los movimientos.
+5. **El informe lee resultados ya calculados** (tablas de resultados por empresa, hotel y mes), nunca recalcula todo el histórico al abrir una página.
+6. **Paginación y filtros en la base de datos**: ninguna tabla de apuntes carga todas las filas en memoria ni en el navegador.
+7. **Prueba con un hotel gigante** ficticio (50.000 apuntes al mes, 34 meses) antes de dar por terminado el paso 3. Objetivo: subir y procesar un mes < 2 min; abrir informe y apuntes < 2 s.
+
+Estado (12 nov 2026): cumplidos 1, 2 y 4. Pendientes 3, 5, 6 y 7: hoy cada página carga todos los movimientos de la empresa y recalcula el informe, y cada subida reprocesa todos los archivos en la propia petición.
+
 ## Documentación de referencia (en Google Drive de Lara)
 - `06_arquitectura_mvp`: arquitectura, flujo, páginas del informe, fases.
 - `07_estructura_datos`: tablas del modelo común, columnas y claves.

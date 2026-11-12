@@ -115,7 +115,10 @@ class MovimientoContable(models.Model):
     ceco = models.CharField(max_length=20, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=['empresa', 'fecha_registro'])]
+        # Índices por empresa, hotel (finca), mes y proveedor: ver "Requisitos de rendimiento" en CLAUDE.md.
+        indexes = [models.Index(fields=['empresa', 'fecha_registro']),
+                   models.Index(fields=['empresa', 'finca', 'fecha_registro']),
+                   models.Index(fields=['empresa', 'proveedor'])]
 
 
 class FilaOperador(models.Model):
@@ -130,7 +133,8 @@ class FilaOperador(models.Model):
     columna_operador = models.CharField(max_length=120)
 
     class Meta:
-        indexes = [models.Index(fields=['empresa', 'mes'])]
+        indexes = [models.Index(fields=['empresa', 'mes']),
+                   models.Index(fields=['empresa', 'hotel', 'mes'])]
 
 
 class FilaPresupuesto(models.Model):
@@ -140,3 +144,6 @@ class FilaPresupuesto(models.Model):
     linea = models.CharField(max_length=80)
     tipo = models.CharField(max_length=60)
     importe = models.DecimalField(max_digits=14, decimal_places=2)
+
+    class Meta:
+        indexes = [models.Index(fields=['empresa', 'hotel', 'mes'])]
