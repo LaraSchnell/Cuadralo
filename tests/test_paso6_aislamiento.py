@@ -32,6 +32,8 @@ def _urls(meses='meses=2026-10'):
     urls += [f'/detalle/?{meses}&tipo=facturas&hotel_sel={h}' for h in ['MAR', 'BORN', 'GRACIA', 'SITGES']]
     urls += [f'/detalle/?{meses}&tipo=reservas&hotel_sel={h}&canal_sel=Booking.com' for h in ['MAR', 'BORN', 'GRACIA', 'SITGES']]
     urls += [f'/detalle/?{meses}&tipo=facturas&hotel={h}&linea=Suministros' for h in ['BORN', 'GRACIA']]
+    urls += [f'/detalle/?{meses}&tipo=calculo&que={q}&mes_sel=2026-10&hotel_sel={h}' for q in ['gop', 'ingresos']
+             for h in ['MAR', 'BORN', 'GRACIA', 'SITGES']]
     urls += [f'/apuntes/?{meses}', f'/apuntes/?{meses}&hotel=BORN', f'/apuntes/?{meses}&exportar=1', '/cargas/']
     urls += [f'/exportar/{t}/?{meses}' for t in TABLAS]
     urls += [f'/exportar/{t}/?{meses}&hotel=BORN&hotel=GRACIA' for t in TABLAS]

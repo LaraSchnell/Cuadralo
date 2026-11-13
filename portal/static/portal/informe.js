@@ -283,9 +283,15 @@
     tabla.querySelector('thead').innerHTML = '<tr>' + d.columnas.map(function (c, i) {
       return '<th' + (numericas.indexOf(i) >= 0 ? ' class="d"' : '') + '>' + esc(c) + '</th>';
     }).join('') + '</tr>';
-    tabla.querySelector('tbody').innerHTML = d.filas.map(function (f) {
-      return '<tr>' + f.map(function (v, i) { return '<td' + (numericas.indexOf(i) >= 0 ? ' class="d"' : '') + '>' + esc(v) + '</td>'; }).join('') + '</tr>';
+    var clics = d.clics || [];
+    tabla.querySelector('tbody').innerHTML = d.filas.map(function (f, k) {
+      var c = clics[k] ? ' class="fila-clic" data-k="' + k + '"' : '';
+      return '<tr' + c + '>' + f.map(function (v, i) { return '<td' + (numericas.indexOf(i) >= 0 ? ' class="d"' : '') + '>' + esc(v) + '</td>'; }).join('') + '</tr>';
     }).join('');
+    // Del cálculo a las facturas: cada fila con clic abre su detalle en la misma tabla.
+    tabla.querySelectorAll('tr[data-k]').forEach(function (tr) {
+      tr.addEventListener('click', function () { abrirDetalle(clics[+tr.dataset.k], caja.dataset.pagina); });
+    });
     tabla.hidden = !d.columnas.length;
     var pie = caja.querySelector('.d-pie');
     pie.hidden = false;

@@ -241,6 +241,36 @@ def detalle(request):
     p_txt = informe.texto_periodo(meses)
     donde = ', '.join(nombre(h) for h in hoteles) if len(hoteles) < len(sel.visibles) or len(sel.visibles) == 1 else 'todo el grupo'
     tipo = g.get('tipo')
+    if tipo == 'calculo':
+        # Clic en una barra de GOP o de ingresos: cómo se llega a esa cifra, desde los resultados ya calculados
+        # (cuenta de resultados de ese mes). Cada fila lleva a sus facturas.
+        que = g.get('que')
+        if que not in ('gop', 'ingresos'):
+            raise Http404
+        aa = [m - pd.DateOffset(months=12) for m in meses]
+        res, res_p, filas_pyg = informe._pyg(datos, hoteles, meses, aa)
+        if res is None:
+            raise Http404
+        if que == 'gop':
+            elegidas = [f for f in filas_pyg if f['tipo'] == 'Subtotal' and f['bloque'] in
+                        ('Ingresos', 'Consumos', 'Personal', 'Otros gastos operativos')] + [f for f in filas_pyg if f['linea'] == 'GOP']
+            valor = lambda linea: next((f['real'] for f in filas_pyg if f['linea'] == linea), '—')
+            explicacion = ['GOP = ingresos − consumos − personal − otros gastos operativos.',
+                           f'{valor("Total ingresos")} − {valor("Total consumos")} − {valor("Total personal")} − '
+                           f'{valor("Total otros gastos operativos")} = {valor("GOP")}.',
+                           'Pulsa una fila para ver de qué facturas sale.']
+            titulo = f'Cómo se llega al GOP · {donde} · {p_txt}'
+        else:
+            elegidas = [f for f in filas_pyg if f['bloque'] == 'Ingresos']
+            explicacion = ['Ingresos = suma de los ingresos de cada departamento que reporta el operador.',
+                           'Pulsa un departamento para ver sus apuntes en contabilidad.']
+            titulo = f'Cómo se llega a los ingresos · {donde} · {p_txt}'
+        filas = [[f['linea'], f['real'], f['ppto'], f['dif'], f['var']['texto'] if f['var'] else '—', f['aa']] for f in elegidas]
+        clics = [dict(f['clic'], mes=g.get('mes_sel')) if f['clic'] and g.get('mes_sel') else f['clic'] for f in elegidas]
+        return JsonResponse({'titulo': titulo, 'explicacion': explicacion,
+                             'columnas': ['Concepto', 'Real', 'Presupuesto', 'Diferencia', 'Var.', 'Año anterior'],
+                             'numericas': [1, 2, 3, 4, 5], 'filas': filas, 'clics': clics, 'total_filas': len(filas),
+                             'max_filas': len(filas), 'exportar': reverse('exportar', args=['cuenta']) + '?' + sel.query()})
     if tipo == 'facturas':
         q = MovimientoContable.objects.filter(empresa=request.empresa, hotel__in=hoteles,
                                               mes__in=[m.date() for m in meses])   # siempre su empresa y sus hoteles

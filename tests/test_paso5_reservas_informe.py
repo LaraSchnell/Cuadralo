@@ -58,12 +58,15 @@ def test_estancia_que_cruza_de_mes_reparte_noches_e_ingresos():
     assert m['Ingresos'].sum() == pytest.approx(400.0)
 
 
-def test_varios_meses_suman_y_los_graficos_solo_traen_esos_meses(client, demo):  # noqa: F811
+def test_varios_meses_suman_y_los_graficos_resaltan_esos_meses(client, demo):  # noqa: F811
     _entrar(client, 'director.demo', 'clave-director-123')
     html = client.get('/?meses=2026-08&meses=2026-09&p=ventas').content.decode()
     assert 'agosto-septiembre 2026 (2 meses)' in html
     datos = json.loads(html.split('id="datos-graficos" type="application/json">')[1].split('</script>')[0])
-    assert datos['ocupacion_mes']['etiquetas'] == ['ago 26', 'sep 26']
+    # Desde el 13 nov los gráficos por mes enseñan los 12 meses hasta el último elegido y resaltan los elegidos
+    ocu = datos['ocupacion_mes']
+    assert len(ocu['etiquetas']) == 12 and ocu['etiquetas'][-2:] == ['ago 26', 'sep 26']
+    assert ocu['series'][0]['colores'][-2:] == ['principal', 'principal'] and ocu['series'][0]['colores'][-3] == 'comparacion'
     assert datos['canales'] and 'noches' in datos['canales']['series'][0]['ayudas'][0]
     # el tooltip trae el valor y el porcentaje
     assert '%' in datos['canales']['series'][0]['ayudas'][0] and '€' in datos['canales']['series'][0]['ayudas'][0]

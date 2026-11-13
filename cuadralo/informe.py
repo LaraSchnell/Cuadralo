@@ -635,14 +635,19 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes', filtros=None)
     hay_ppto = bool(k_ppto)
 
     # ---- mes a mes, solo los meses elegidos
-    real_m = datos.por_mes(hoteles, periodo)
-    ppto_m = datos.por_mes(hoteles, periodo, 'ppto')
-    aa_m = datos.por_mes(hoteles, periodo, desplazar=12)
-    meses_g = [m for m in periodo if m in real_m]
+    # Los gráficos de barras por mes enseñan siempre los 12 meses hasta el último mes elegido (decisión de Lara,
+    # 13 nov 2026); los meses elegidos van en azul fuerte y el resto en azul claro. Las tarjetas suman solo lo elegido.
+    meses_graf = [mes_ref - pd.DateOffset(months=i) for i in range(11, -1, -1)]
+    real_m = datos.por_mes(hoteles, meses_graf)
+    ppto_m = datos.por_mes(hoteles, meses_graf, 'ppto')
+    aa_m = datos.por_mes(hoteles, meses_graf, desplazar=12)
+    meses_g = [m for m in meses_graf if m in real_m]
+    resaltar_elegidos = any(m not in periodo for m in meses_g)
+    colores_elegidos = ['principal' if m in periodo else 'comparacion' for m in meses_g] if resaltar_elegidos else None
     etiquetas = [mes_corto(m) for m in meses_g]
     clic_mes = [{'mes': f'{m:%Y-%m}'} for m in meses_g]
     g = lambda d, m, k: (d.get(m) or {}).get(k)
-    total_ing = sum(g(real_m, m, 'Ingresos totales') or 0 for m in meses_g)
+    total_ing = sum(g(real_m, m, 'Ingresos totales') or 0 for m in meses_g if m in periodo)
 
     def ayuda_mes(m, clave, formato_fn, extra=''):
         v = g(real_m, m, clave)
@@ -652,7 +657,7 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes', filtros=None)
     g_resultado_mes = grafico('barras', etiquetas, [
         serie('Ingresos', [g(real_m, m, 'Ingresos totales') for m in meses_g],
               [corto(g(real_m, m, 'Ingresos totales')) for m in meses_g],
-              [_unir(ayuda_mes(m, 'Ingresos totales', eur), _cuota(g(real_m, m, 'Ingresos totales'), total_ing)) for m in meses_g],
+              [ayuda_mes(m, 'Ingresos totales', eur) for m in meses_g],
               'principal'),
         serie('Gastos operativos', [g(real_m, m, 'Gastos operativos') for m in meses_g],
               [corto(g(real_m, m, 'Gastos operativos')) for m in meses_g],
@@ -666,13 +671,14 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes', filtros=None)
               [_unir(eur(g(real_m, m, 'GOP')), f'{pct(g(real_m, m, "% GOP"))} de margen',
                      _var_txt(g(real_m, m, 'GOP'), g(aa_m, m, 'GOP'), 'año anterior'),
                      _var_txt(g(real_m, m, 'GOP'), g(ppto_m, m, 'GOP'), 'presupuesto')) for m in meses_g], 'resultado'),
-    ], [{'tipo': 'facturas', **x} for x in clic_mes], formato='eur')
+    ], [{'tipo': 'calculo', 'que': 'gop', **x} for x in clic_mes], formato='eur')
 
-    def real_ppto_aa(clave, nombre, extra_ayuda=None):
+    def real_ppto_aa(clave, nombre, que, extra_ayuda=None):
         """Real en barras de un solo color; presupuesto en línea y año anterior en línea discontinua (diseño 3b)."""
         reales = [g(real_m, m, clave) for m in meses_g]
         series = [serie(nombre, reales, [corto(v) for v in reales],
-                        [_unir(ayuda_mes(m, clave, eur), extra_ayuda(m) if extra_ayuda else '') for m in meses_g], 'principal')]
+                        [_unir(ayuda_mes(m, clave, eur), extra_ayuda(m) if extra_ayuda else '') for m in meses_g], 'principal',
+                        colores=colores_elegidos)]
         if any(g(ppto_m, m, clave) is not None for m in meses_g):
             series.append(serie('Presupuesto', [g(ppto_m, m, clave) for m in meses_g], None,
                                 [_unir(f'Presupuesto {eur(g(ppto_m, m, clave))}', _var_txt(g(real_m, m, clave), g(ppto_m, m, clave), 'presupuesto'))
@@ -681,10 +687,10 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes', filtros=None)
             series.append(serie('Año anterior', [g(aa_m, m, clave) for m in meses_g], None,
                                 [_unir(f'Año anterior {eur(g(aa_m, m, clave))}', _var_txt(g(real_m, m, clave), g(aa_m, m, clave), 'año anterior'))
                                  for m in meses_g], 'aa', tipo='line', etiquetas_visibles=False))
-        return grafico('barras', etiquetas, series, [{'tipo': 'facturas', **x} for x in clic_mes], formato='eur')
+        return grafico('barras', etiquetas, series, [{'tipo': 'calculo', 'que': que, **x} for x in clic_mes], formato='eur')
 
-    g_gop_mes = real_ppto_aa('GOP', 'GOP', lambda m: f'{pct(g(real_m, m, "% GOP"))} de margen')
-    g_ingresos_mes = real_ppto_aa('Ingresos totales', 'Ingresos')
+    g_gop_mes = real_ppto_aa('GOP', 'GOP', 'gop', lambda m: f'{pct(g(real_m, m, "% GOP"))} de margen')
+    g_ingresos_mes = real_ppto_aa('Ingresos totales', 'Ingresos', 'ingresos')
 
     g_ocupacion_mes = grafico('barras', etiquetas, [
         serie('Ocupación', [(g(real_m, m, 'Ocupación') or 0) * 100 for m in meses_g],
@@ -692,7 +698,7 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes', filtros=None)
               [_unir(pct(g(real_m, m, 'Ocupación')), f'{num(g(real_m, m, "Room nights"))} room nights',
                      f'ADR {eur(g(real_m, m, "ADR"), 2)}', f'RevPAR {eur(g(real_m, m, "RevPAR"), 2)}',
                      (f'{con_signo(((g(real_m, m, "Ocupación") or 0) - g(aa_m, m, "Ocupación")) * 100, 1, "pp")} vs año anterior'
-                      if g(aa_m, m, 'Ocupación') is not None else '')) for m in meses_g], 'principal'),
+                      if g(aa_m, m, 'Ocupación') is not None else '')) for m in meses_g], 'principal', colores=colores_elegidos),
         serie('Ocupación año anterior', [(g(aa_m, m, 'Ocupación') or 0) * 100 if g(aa_m, m, 'Ocupación') is not None else None
                                          for m in meses_g],
               [pct(g(aa_m, m, 'Ocupación')) if g(aa_m, m, 'Ocupación') is not None else '' for m in meses_g],
@@ -893,7 +899,7 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes', filtros=None)
                                 'adr': eur(k['ADR'], 2), 'revpar': eur(k['RevPAR'], 2), 'labor': pct(k['Labor cost']),
                                 'cpor': eur(k['CPOR'], 2)})
         et12 = [mes_corto(m) for m in m12]
-        clic12 = [{'tipo': 'facturas', 'mes': f'{m:%Y-%m}'} for m in m12]
+        clic12 = [{'tipo': 'calculo', 'que': 'gop', 'mes': f'{m:%Y-%m}'} for m in m12]
         series12 = [serie('GOP', [v(r12, m, 'GOP') for m in m12], [corto(v(r12, m, 'GOP')) for m in m12],
                           [_unir(eur(v(r12, m, 'GOP')), f'{pct(v(r12, m, "% GOP"))} de margen',
                                  _var_txt(v(r12, m, 'GOP'), v(p12, m, 'GOP'), 'presupuesto'),

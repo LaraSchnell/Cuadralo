@@ -66,7 +66,8 @@ tests/                   pytest: cifras de octubre 2026 y los 11 casos sembrados
 ```
 
 ## Informe en la web (desde el 12 nov 2026)
-- Filtros: periodo año > mes (varios meses), hotel, ceco, proveedor y canal. Las tarjetas suman los meses elegidos y los gráficos de barras solo enseñan esos meses.
+- Filtros: periodo año > mes (varios meses), hotel, ceco, proveedor y canal. Las tarjetas suman los meses elegidos. Los gráficos de barras por mes enseñan los 12 meses hasta el último mes elegido, con los meses elegidos resaltados (decisión del 13 nov 2026; antes solo enseñaban los elegidos).
+- Clic en una barra de GOP o de ingresos → detalle `tipo=calculo` (cómo se llega a la cifra desde la cuenta de resultados ya calculada); cada fila lleva a sus facturas. Es una tabla distinta de «Qué hacer».
 - Cada página: tarjetas arriba, gráficos en el centro (Chart.js, en portal/static/portal/vendor), tablas abajo. Poco texto.
 - Cada punto de un gráfico trae desde Python su texto (encima) y su ayuda (tooltip con valor y %): el navegador no calcula cifras.
 - Clic en un gráfico o en una fila → vista `detalle` (JSON) con las facturas o las reservas de donde sale la cifra.
