@@ -11,8 +11,9 @@ jobs:
         env:
           PERFIL: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
         run: |
+          set +e
           for i in 1 2 3 4 5 6 7 8 9 10; do
-            c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 https://cuadralo-demo-543f7.azurewebsites.net/entrar/)
+            c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 90 https://cuadralo-demo-543f7.azurewebsites.net/entrar/)
             echo "intento $i: /entrar/ -> $c"; [ "$c" = "200" ] && break; sleep 30
           done
           echo "estatico Chart.js -> $(curl -s -o /dev/null -w '%{http_code}' https://cuadralo-demo-543f7.azurewebsites.net/static/portal/vendor/chart.umd.min.js)"
