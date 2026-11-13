@@ -125,6 +125,7 @@ DATOS_DEMO = BASE_DIR / 'datos_origen'
 
 LOGGING = {
     'version': 1,
+    'disable_existing_loggers': False,   # si no, Django apaga su registro de errores de peticiones (django.request)
     'handlers': {'console': {'class': 'logging.StreamHandler'}},
     'root': {'handlers': ['console'], 'level': 'INFO'},
 }
