@@ -168,3 +168,15 @@ def test_ia_solo_recibe_lo_minimo_y_solo_vale_una_opcion_valida(monkeypatch):
     monkeypatch.setattr(ia, 'proponer', lambda ps, registrar=None: r)
     sugerencias.sugerir(preguntas)
     assert preguntas[0]['fuente'] == 'ia' and preguntas[1]['sugerencia'] != 'INVENTADO'
+
+
+def test_configuracion_antigua_sin_hoja_de_canales_no_rompe_el_informe():
+    """13 nov: en Azure el Grupo Demo tenía una configuración anterior sin la hoja «canales» y el informe daba error 500."""
+    import pandas as pd
+    from cuadralo import revision
+    cfg = pd.read_excel(RAIZ / 'configuracion_grupo_demo.xlsx', sheet_name=None)
+    cfg.pop('canales')
+    mapeos = [('operador', 'columna', 'Alojam.', 'Alojamiento'), ('reservas', 'canal', 'Nuevo origen', 'Booking.com')]
+    nueva = revision.aplicar_mapeos(cfg, mapeos)
+    assert nueva['alias_columnas'] == {'operador': {'Alojam.': 'Alojamiento'}}
+    assert len(nueva['canales']) == 0

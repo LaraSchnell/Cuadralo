@@ -160,6 +160,9 @@ def aplicar_mapeos(cfg, mapeos):
     alias_col, alias_hotel, alias_finca, alias_hoja, anios = {}, {}, {}, {}, {}
     cuentas, canales = [], []
     est = cfg['estructura_informe'].drop_duplicates('Línea').set_index('Línea')['Bloque']
+    # Una configuración antigua puede no tener la hoja de canales (se añadió el 12 nov): entonces no hay canales que mapear.
+    if 'canales' not in cfg:
+        cfg['canales'] = pd.DataFrame(columns=['Valor en Mews', 'Canal', 'Tipo de canal', 'Descripción'])
     tipos_canal = cfg['canales'].drop_duplicates('Canal').set_index('Canal')['Tipo de canal']
     for tipo, clase, origen, destino in mapeos:
         if clase == 'columna':
