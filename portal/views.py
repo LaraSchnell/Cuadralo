@@ -1,5 +1,6 @@
 import copy
 import re
+import threading
 
 import pandas as pd
 from django.contrib import messages
@@ -34,6 +35,8 @@ def _mes_texto(ts):
 # Datos ya calculados de cada empresa, en memoria del proceso. Se rehacen solo cuando cambian sus cargas
 # o su configuración, así cada clic no vuelve a leer y calcular todo el histórico.
 _CACHE_DATOS = {}
+# La web corre con varios hilos: solo uno carga los datos de una empresa; los demás esperan y los reutilizan.
+_CANDADO_DATOS = threading.Lock()
 
 
 def _version(empresa):
@@ -50,6 +53,14 @@ def obtener_datos(empresa):
     guardado = _CACHE_DATOS.get(empresa.id)
     if guardado and guardado[0] == version:
         return guardado[1], guardado[2]
+    with _CANDADO_DATOS:
+        guardado = _CACHE_DATOS.get(empresa.id)
+        if guardado and guardado[0] == version:
+            return guardado[1], guardado[2]
+        return _cargar_datos(empresa, version)
+
+
+def _cargar_datos(empresa, version):
     cfg = leer_configuracion(empresa)
     datos = precalculo.cargar(empresa, cfg)
     if datos is None:
