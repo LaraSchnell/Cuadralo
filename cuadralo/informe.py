@@ -164,6 +164,44 @@ def tarjetas(grupo, k_real, k_ppto, k_aa):
     return out
 
 
+def franja_presupuesto(k_real, k_ppto, k_aa):
+    """Bloques de color «Hasta el presupuesto» (diseño 3b). Todo sale de los KPIs ya calculados; nada lo escribe una IA.
+
+    Las palancas de room nights y ADR se calculan sobre los INGRESOS que faltan (no sobre el GOP), para no suponer
+    qué parte de cada euro vendido llega al GOP.
+    """
+    g = lambda d, k: (d or {}).get(k)
+    bloques = []
+    gop, gop_p, gop_a = g(k_real, 'GOP'), g(k_ppto, 'GOP'), g(k_aa, 'GOP')
+    if gop is not None and gop_p is not None:
+        d = gop - gop_p
+        bloques.append({'que': 'GOP que falta para el presupuesto' if d < 0 else 'GOP por encima del presupuesto',
+                        'cifra': eur(abs(d)), 'estado': 'mal' if d < 0 else 'bien',
+                        'como': f'real {eur(gop)} frente a {eur(gop_p)}'})
+    if gop is not None and gop_a is not None:
+        d = gop - gop_a
+        bloques.append({'que': 'GOP frente al año anterior', 'cifra': ('+' if d >= 0 else '−') + eur(abs(d)),
+                        'estado': 'bien' if d >= 0 else 'mal', 'como': f'el año anterior fue {eur(gop_a)}'})
+    ing, ing_p, rn, adr = g(k_real, 'Ingresos totales'), g(k_ppto, 'Ingresos totales'), g(k_real, 'Room nights'), g(k_real, 'ADR')
+    if ing is not None and ing_p is not None:
+        falta = ing_p - ing
+        if falta > 0 and adr:
+            bloques.append({'que': 'Room nights que faltan al ADR actual', 'cifra': num(falta / adr),
+                            'estado': 'mal', 'como': f'para los {eur(falta)} de ingresos que faltan, a {eur(adr, 2)}'})
+            if rn:
+                bloques.append({'que': 'Subida de ADR que lo cubriría', 'cifra': eur(falta / rn, 2),
+                                'estado': 'aviso', 'como': f'con las mismas {num(rn)} room nights'})
+        else:
+            bloques.append({'que': 'Ingresos por encima del presupuesto', 'cifra': eur(-falta), 'estado': 'bien',
+                            'como': f'real {eur(ing)} frente a {eur(ing_p)}'})
+    ocu, ocu_p = g(k_real, 'Ocupación'), g(k_ppto, 'Ocupación')
+    if len(bloques) < 4 and ocu is not None and ocu_p is not None:
+        d = (ocu - ocu_p) * 100
+        bloques.append({'que': 'Ocupación frente al presupuesto', 'cifra': con_signo(d, 1, 'pts'),
+                        'estado': 'bien' if d >= 0 else 'mal', 'como': f'{pct(ocu)} frente a {pct(ocu_p)}'})
+    return bloques[:4]
+
+
 # ---------------------------------------------------------------- agregación
 
 def _suma(df, hoteles, meses):
@@ -519,13 +557,14 @@ def _alertas(cfg, diferencias, importe_dif, ratios_mal, desviaciones, estructura
                         'cuanto': f'{eur(importe_dif)} sumando las diferencias de cada línea',
                         'detalle': ' · '.join(f'{f["linea"]}' + (f' ({f["hotel"]})' if es_grupo else '') + f' {f["diferencia"]}'
                                               for f in diferencias[:6]),
-                        'donde': 'Ingresos', 'umbral': f'tolerancia {eur(tol)}', 'periodo': p_txt, 'pagina': 'cuadre'})
+                        'donde': 'Ingresos', 'umbral': f'tolerancia {eur(tol)}', 'periodo': p_txt, 'pagina': 'cuadre',
+                        'hotel': ', '.join(sorted({f['hotel'] for f in diferencias})) if es_grupo else ''})
     for f in diferencias[:1] if len(diferencias) == 1 else []:
         alertas.append({'prioridad': 1, 'impacto': 0, 'tipo': 'Cuadre', 'color': 'mal',
                         'que': f'{f["linea"]} no cuadra' + (f' · {f["hotel"]}' if es_grupo else ''),
                         'cuanto': f'{f["diferencia"]} (operador {f["operador"]}, contabilidad {f["contabilidad"]})',
                         'detalle': f['causa'], 'donde': 'Ingresos', 'umbral': f'tolerancia {eur(tol)}', 'periodo': f['mes'],
-                        'pagina': 'cuadre'})
+                        'pagina': 'cuadre', 'hotel': f['hotel'] if es_grupo else ''})
     tol_r = f'tolerancia {num(float(c.parametro(cfg, "tolerancia_ratio_pct")) * 100, 1)} %'
     if len(ratios_mal) > 1:
         alertas.append({'prioridad': 2, 'impacto': 0, 'tipo': 'Ratio', 'color': 'aviso',
@@ -533,13 +572,14 @@ def _alertas(cfg, diferencias, importe_dif, ratios_mal, desviaciones, estructura
                         'cuanto': ' · '.join(f'{x["ratio"]}' + (f' ({x["hotel"]})' if es_grupo else '') + f' {x["diferencia"]}'
                                              for x in ratios_mal[:6]),
                         'detalle': 'Revisar con el operador antes de usar sus ratios en ningún informe.',
-                        'donde': 'Informe del operador', 'umbral': tol_r, 'periodo': p_txt, 'pagina': 'cuadre'})
+                        'donde': 'Informe del operador', 'umbral': tol_r, 'periodo': p_txt, 'pagina': 'cuadre',
+                        'hotel': ', '.join(sorted({x['hotel'] for x in ratios_mal})) if es_grupo else ''})
     for x in ratios_mal[:1] if len(ratios_mal) == 1 else []:
         alertas.append({'prioridad': 2, 'impacto': 0, 'tipo': 'Ratio', 'color': 'aviso',
                         'que': f'{x["ratio"]} del operador mal calculado' + (f' · {x["hotel"]}' if es_grupo else ''),
                         'cuanto': f'reporta {x["operador"]}, recalculado {x["recalculado"]} ({x["diferencia"]})',
                         'detalle': x['nota'], 'donde': 'Informe del operador', 'umbral': tol_r, 'periodo': x['mes'],
-                        'pagina': 'cuadre'})
+                        'pagina': 'cuadre', 'hotel': x['hotel'] if es_grupo else ''})
     for d in desviaciones:
         # Una desviación favorable solo es alerta si la explica una factura (p. ej. una factura que falta)
         if (d['favorable'] and not d['tiene_causa_factura']) or any(x['etiqueta'] == 'No cuadra' for x in d['causas']):
@@ -548,14 +588,17 @@ def _alertas(cfg, diferencias, importe_dif, ratios_mal, desviaciones, estructura
                         'color': 'mal', 'que': f'{d["linea"]} {d["dif"]} frente al {d["referencia"]}' + (f' · {d["hotel"]}' if es_grupo else ''),
                         'cuanto': f'{d["var"]} (real {d["real"]})', 'detalle': d['causas'][0]['texto'],
                         'donde': d['linea'], 'umbral': umbral, 'periodo': f'{d["mes_texto"]} frente al {d["referencia"]}',
-                        'pagina': 'desviaciones', 'clic': d['clic']})
+                        'pagina': 'desviaciones', 'clic': d['clic'], 'hotel': d['hotel'] if es_grupo else ''})
     for e in estructural:
         alertas.append({'prioridad': 4, 'impacto': 0, 'tipo': 'Comparativa', 'color': 'aviso',
                         'que': f'{e["linea"]} cara · {e["hotel"]}', 'cuanto': f'{e["valor"]} por room night frente a {e["mediana"]} en el resto',
                         'detalle': f'Unos {e["exceso"]} al mes por encima de los otros hoteles: coste estructural, no una factura puntual.',
                         'donde': e['linea'], 'umbral': '+20 % sobre la mediana de los otros hoteles', 'periodo': 'últimos 3 meses',
-                        'pagina': 'comparativa'})
+                        'pagina': 'comparativa', 'hotel': e['hotel']})
     alertas.sort(key=lambda a: (a['prioridad'], -a['impacto']))
+    for a in alertas:   # nivel que ve el usuario y por el que filtra
+        a['nivel'], a['nivel_txt'] = {1: ('p1', 'Urgente'), 2: ('p2', 'Revisar'), 3: ('p2', 'Revisar')}.get(a['prioridad'], ('p3', 'Vigilar'))
+        a.setdefault('hotel', '')
     return alertas
 
 
@@ -625,6 +668,24 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes', filtros=None)
                      _var_txt(g(real_m, m, 'GOP'), g(ppto_m, m, 'GOP'), 'presupuesto')) for m in meses_g], 'resultado'),
     ], [{'tipo': 'facturas', **x} for x in clic_mes], formato='eur')
 
+    def real_ppto_aa(clave, nombre, extra_ayuda=None):
+        """Real en barras de un solo color; presupuesto en línea y año anterior en línea discontinua (diseño 3b)."""
+        reales = [g(real_m, m, clave) for m in meses_g]
+        series = [serie(nombre, reales, [corto(v) for v in reales],
+                        [_unir(ayuda_mes(m, clave, eur), extra_ayuda(m) if extra_ayuda else '') for m in meses_g], 'principal')]
+        if any(g(ppto_m, m, clave) is not None for m in meses_g):
+            series.append(serie('Presupuesto', [g(ppto_m, m, clave) for m in meses_g], None,
+                                [_unir(f'Presupuesto {eur(g(ppto_m, m, clave))}', _var_txt(g(real_m, m, clave), g(ppto_m, m, clave), 'presupuesto'))
+                                 for m in meses_g], 'ppto', tipo='line', etiquetas_visibles=False))
+        if any(g(aa_m, m, clave) is not None for m in meses_g):
+            series.append(serie('Año anterior', [g(aa_m, m, clave) for m in meses_g], None,
+                                [_unir(f'Año anterior {eur(g(aa_m, m, clave))}', _var_txt(g(real_m, m, clave), g(aa_m, m, clave), 'año anterior'))
+                                 for m in meses_g], 'aa', tipo='line', etiquetas_visibles=False))
+        return grafico('barras', etiquetas, series, [{'tipo': 'facturas', **x} for x in clic_mes], formato='eur')
+
+    g_gop_mes = real_ppto_aa('GOP', 'GOP', lambda m: f'{pct(g(real_m, m, "% GOP"))} de margen')
+    g_ingresos_mes = real_ppto_aa('Ingresos totales', 'Ingresos')
+
     g_ocupacion_mes = grafico('barras', etiquetas, [
         serie('Ocupación', [(g(real_m, m, 'Ocupación') or 0) * 100 for m in meses_g],
               [pct(g(real_m, m, 'Ocupación')) for m in meses_g],
@@ -637,7 +698,7 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes', filtros=None)
               [pct(g(aa_m, m, 'Ocupación')) if g(aa_m, m, 'Ocupación') is not None else '' for m in meses_g],
               [_unir(pct(g(aa_m, m, 'Ocupación')), f'{num(g(aa_m, m, "Room nights"))} room nights',
                      f'ADR {eur(g(aa_m, m, "ADR"), 2)}') if g(aa_m, m, 'Ocupación') is not None else '' for m in meses_g],
-              'comparacion'),
+              'aa', tipo='line'),
     ], [{'tipo': 'reservas', **x} for x in clic_mes], formato='pct')
 
     g_adr_mes = grafico('lineas', etiquetas, [
@@ -778,7 +839,7 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes', filtros=None)
                                     'divergente', colores=['bien' if d['favorable'] else 'mal' for d in top_desv])], [d['clic'] for d in top_desv], formato='eur') if top_desv else None
 
     # ---- comparativa entre hoteles
-    comparativa, estructural, g_hoteles = [], [], None
+    comparativa, estructural, g_hoteles, g_comparativa_margen = [], [], None, None
     if es_grupo:
         filas_h = []
         for h in hoteles:
@@ -815,7 +876,45 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes', filtros=None)
                                     'valor': eur(x['Por room night'], 2), 'mediana': eur(x['Mediana otros'], 2),
                                     'exceso': eur(x['Exceso'])})
     else:
-        g_comparativa = None
+        # Un solo hotel (diseño 3d): lo que con varios hoteles compara hoteles, aquí compara los últimos 12 meses
+        # del hotel con su presupuesto y con el año anterior. Lee los mismos resultados precalculados.
+        doce = [mes_ref - pd.DateOffset(months=i) for i in range(11, -1, -1)]
+        r12, p12 = datos.por_mes(hoteles, doce), datos.por_mes(hoteles, doce, 'ppto')
+        a12 = datos.por_mes(hoteles, doce, desplazar=12)
+        m12 = [m for m in doce if m in r12]
+        v = lambda d, m, k: (d.get(m) or {}).get(k)
+        for m in reversed(m12):
+            k = r12[m]
+            comparativa.append({'mes': mes_texto(m), 'mes_id': f'{m:%Y-%m}', 'ingresos': eur(k['Ingresos totales']),
+                                'gop': eur(k['GOP']), 'gop_pct': pct(k['% GOP']),
+                                'gop_vs_ppto': _variacion(k['GOP'], v(p12, m, 'GOP'), 'rel', 1),
+                                'gop_vs_aa': _variacion(k['GOP'], v(a12, m, 'GOP'), 'rel', 1),
+                                'ocupacion': pct(k['Ocupación']), 'ocu_vs_aa': _variacion(k['Ocupación'], v(a12, m, 'Ocupación'), 'pp', 1),
+                                'adr': eur(k['ADR'], 2), 'revpar': eur(k['RevPAR'], 2), 'labor': pct(k['Labor cost']),
+                                'cpor': eur(k['CPOR'], 2)})
+        et12 = [mes_corto(m) for m in m12]
+        clic12 = [{'tipo': 'facturas', 'mes': f'{m:%Y-%m}'} for m in m12]
+        series12 = [serie('GOP', [v(r12, m, 'GOP') for m in m12], [corto(v(r12, m, 'GOP')) for m in m12],
+                          [_unir(eur(v(r12, m, 'GOP')), f'{pct(v(r12, m, "% GOP"))} de margen',
+                                 _var_txt(v(r12, m, 'GOP'), v(p12, m, 'GOP'), 'presupuesto'),
+                                 _var_txt(v(r12, m, 'GOP'), v(a12, m, 'GOP'), 'año anterior')) for m in m12], 'principal')]
+        if any(v(p12, m, 'GOP') is not None for m in m12):
+            series12.append(serie('Presupuesto', [v(p12, m, 'GOP') for m in m12], None,
+                                  [f'Presupuesto {eur(v(p12, m, "GOP"))}' for m in m12], 'ppto', tipo='line', etiquetas_visibles=False))
+        if any(v(a12, m, 'GOP') is not None for m in m12):
+            series12.append(serie('Año anterior', [v(a12, m, 'GOP') for m in m12], None,
+                                  [f'Año anterior {eur(v(a12, m, "GOP"))}' for m in m12], 'aa', tipo='line', etiquetas_visibles=False))
+        g_hoteles = None
+        g_comparativa = grafico('barras', et12, series12, clic12, formato='eur')
+        g_comparativa_margen = grafico('barras', et12, [
+            serie('% GOP', [(v(r12, m, '% GOP') or 0) * 100 for m in m12], [pct(v(r12, m, '% GOP')) for m in m12],
+                  [_unir(f'{pct(v(r12, m, "% GOP"))} de margen') for m in m12], 'resultado'),
+            serie('% GOP año anterior', [(v(a12, m, '% GOP') * 100) if v(a12, m, '% GOP') is not None else None for m in m12], None,
+                  [f'{pct(v(a12, m, "% GOP"))} el año anterior' if v(a12, m, '% GOP') is not None else '' for m in m12],
+                  'aa', tipo='line', etiquetas_visibles=False),
+            serie('Labor cost', [(v(r12, m, 'Labor cost') or 0) * 100 for m in m12], [pct(v(r12, m, 'Labor cost')) for m in m12],
+                  [_unir(f'{pct(v(r12, m, "Labor cost"))} de los ingresos en personal') for m in m12], 'gasto'),
+        ], clic12, formato='pct')
 
     alertas = _alertas(cfg, diferencias, importe_dif, ratios_mal, desviaciones, estructural, es_grupo, p_txt)
 
@@ -844,15 +943,17 @@ def construir(datos, hoteles_visibles, seleccion, mes, modo='mes', filtros=None)
         'hay_ppto': hay_ppto, 'hay_aa': bool(k_aa), 'hay_reservas': datos.hay_reservas,
         'filtro_gastos': bool(ceco or proveedor), 'filtro_canal': bool(canal),
         'tarjetas_resumen': tarjetas('resumen', k_real, k_ppto, k_aa),
+        'franja': franja_presupuesto(k_real, k_ppto, k_aa),
+        'hoteles_nombres': [nombre(h) for h in hoteles],
         'tarjetas_ocupacion': tarjetas('ocupacion', k_real, k_ppto, k_aa),
         'tarjetas_reservas': tarjetas_reservas,
         'tarjetas_cuenta': tarjetas('cuenta', k_real, k_ppto, k_aa),
         'tarjetas_portada': tarjetas('portada', k_real, k_ppto, k_aa),
         'graficos': {
-            'resultado_mes': g_resultado_mes, 'ocupacion_mes': g_ocupacion_mes, 'adr_mes': g_adr_mes,
+            'resultado_mes': g_resultado_mes, 'gop_mes': g_gop_mes, 'ingresos_mes': g_ingresos_mes, 'ocupacion_mes': g_ocupacion_mes, 'adr_mes': g_adr_mes,
             'cascada': cascada, 'gastos': g_gastos, 'departamentos': g_departamentos, 'hoteles': g_hoteles,
             'canales': g_canales, 'segmentos': g_segmentos, 'paises': g_paises,
-            'cuadre': g_cuadre, 'desviaciones': g_desviaciones, 'comparativa': g_comparativa,
+            'cuadre': g_cuadre, 'desviaciones': g_desviaciones, 'comparativa': g_comparativa, 'comparativa_margen': g_comparativa_margen,
         },
         'pyg': pyg, 'canales': canales_tabla, 'cuadre_reservas': cuadre_reservas,
         'cuadre_reservas_mal': [x for x in cuadre_reservas if not x['cuadra']],

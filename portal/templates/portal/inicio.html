@@ -86,32 +86,39 @@
 {% else %}
 {% with i=informe %}
 
-<!-- ===================== RESUMEN ===================== -->
+<!-- ===================== RESUMEN (diseño 3b) ===================== -->
 <section class="pagina" id="resumen">
-  <div class="cabecera-pagina"><h1>¿Cómo ha ido el periodo?</h1><span class="suave">{{ i.titulo }} · {{ i.periodo_texto }}</span></div>
+  <div class="cabecera-pagina"><h1>¿Cómo ha ido el periodo?</h1><span class="suave">{{ i.titulo }}, {{ i.periodo_texto }}</span></div>
   {% if not i.hay_ppto %}<p class="nota">No hay presupuesto cargado para este periodo: las tarjetas solo comparan con el año anterior.</p>{% endif %}
   <div class="rejilla r6">{% for t in i.tarjetas_resumen %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>
-  <div class="rejilla r21 mt">
-    <div class="tarjeta"><h2>Ingresos, gastos y GOP por mes</h2><div class="lienzo"><canvas data-grafico="resultado_mes" data-pagina="resumen"></canvas></div></div>
+  {% if i.franja %}
+  <div class="mt"><h2>Hasta el presupuesto</h2>
+    <div class="franja">{% for b in i.franja %}<div class="bloque {{ b.estado }}"><div class="que">{{ b.que }}</div><div class="cifra">{{ b.cifra }}</div><div class="como">{{ b.como }}</div></div>{% endfor %}</div>
+  </div>
+  {% endif %}
+  <div class="mosaico mt">
+    <div class="tarjeta protagonista"><h2>GOP por mes <span class="suave">· barras: real; línea: presupuesto; discontinua: año anterior</span></h2><div class="lienzo"><canvas data-grafico="gop_mes" data-pagina="resumen"></canvas></div></div>
     {% if i.graficos.hoteles %}
-    <div class="tarjeta"><h2>GOP por hotel</h2><div class="lienzo"><canvas data-grafico="hoteles" data-pagina="resumen"></canvas></div></div>
+    <div class="tarjeta ancho"><h2>GOP por hotel</h2><div class="lienzo"><canvas data-grafico="hoteles" data-pagina="resumen"></canvas></div></div>
     {% else %}
+    <div class="tarjeta ancho"><h2>Ingresos por departamento</h2><div class="lienzo"><canvas data-grafico="departamentos" data-pagina="resumen"></canvas></div></div>
+    {% endif %}
+    {% if 'cuadre' in paginas_visibles %}<a class="tarjeta kpi enlace-tarjeta" href="?{{ query }}&amp;p=cuadre">
+      <div class="nombre">Líneas que no cuadran</div><div class="cifra-grande {% if i.diferencias %}mal{% else %}bien{% endif %}">{{ i.diferencias|length }}</div>
+      <div class="comparar"><span class="etiq {% if i.diferencias %}mal{% else %}bien{% endif %}">{% if i.diferencias %}{{ i.importe_diferencias }} en diferencias{% else %}Todo cuadra{% endif %}</span></div></a>{% endif %}
+    <a class="tarjeta kpi enlace-tarjeta" href="?{{ query }}&amp;p=desviaciones">
+      <div class="nombre">Desviaciones con causa</div><div class="cifra-grande {% if i.desviaciones %}aviso{% else %}bien{% endif %}">{{ i.desviaciones|length }}</div>
+      <div class="comparar"><span class="etiq {% if i.desviaciones %}aviso{% else %}bien{% endif %}">{% if i.desviaciones %}explicadas hasta la factura{% else %}Ninguna{% endif %}</span></div></a>
+  </div>
+  <div class="rejilla r2 mt">
+    <div class="tarjeta"><h2>Ocupación por mes <span class="suave">· frente al año anterior</span></h2><div class="lienzo"><canvas data-grafico="ocupacion_mes" data-pagina="resumen"></canvas></div></div>
+    {% if i.graficos.hoteles %}
     <div class="tarjeta"><h2>Ingresos por departamento</h2><div class="lienzo"><canvas data-grafico="departamentos" data-pagina="resumen"></canvas></div></div>
+    {% else %}
+    <div class="tarjeta"><h2>Las 10 partidas de gasto más grandes</h2><div class="lienzo"><canvas data-grafico="gastos" data-pagina="resumen"></canvas></div></div>
     {% endif %}
   </div>
-  <div class="tarjeta mt tabla-scroll">
-    <div class="cabecera-tabla"><h2>¿Qué hay que revisar? <span class="suave">· {{ i.total_alertas }} avisos, por prioridad</span></h2></div>
-    {% if i.todas_alertas %}
-    <table>
-      <thead><tr><th>Aviso</th><th>Cuánto</th><th class="ocultar-movil">Periodo</th><th></th></tr></thead>
-      <tbody>{% for a in i.todas_alertas|slice:":10" %}
-        <tr class="fila-clic" data-ir="{{ a.pagina }}">
-          <td><span class="punto-color {{ a.color }}"></span><b>{{ a.que }}</b><div class="suave pequeno">{{ a.detalle|truncatechars:140 }}</div></td>
-          <td>{{ a.cuanto }}</td><td class="ocultar-movil suave">{{ a.periodo }}</td><td class="d"><span class="enlace-ver">Ver ›</span></td></tr>
-      {% endfor %}</tbody>
-    </table>
-    {% else %}<p class="vacio">Nada que revisar: todo cuadra y no hay desviaciones.</p>{% endif %}
-  </div>
+  {% include 'portal/_acciones.html' %}
   {% include 'portal/_detalle.html' with pagina_d='resumen' ayuda='Haz clic en un mes del gráfico para ver sus facturas.' %}
 </section>
 
@@ -156,6 +163,10 @@
   <div class="cabecera-pagina"><h1>¿Cuánto ganamos y dónde se va el dinero?</h1><span class="suave">{{ i.titulo }} · {{ i.periodo_texto }}</span></div>
   {% if i.filtro_gastos %}<p class="nota">Filtro de ceco o proveedor activo: se aplica al gráfico de gastos y a las facturas. Las tarjetas y la cuenta de resultados son del total.</p>{% endif %}
   <div class="rejilla r6">{% for t in i.tarjetas_cuenta %}{% include 'portal/_tarjeta.html' %}{% endfor %}</div>
+  <div class="rejilla r2 mt">
+    <div class="tarjeta"><h2>Ingresos por mes <span class="suave">· barras: real; línea: presupuesto; discontinua: año anterior</span></h2><div class="lienzo"><canvas data-grafico="ingresos_mes" data-pagina="resultados"></canvas></div></div>
+    <div class="tarjeta"><h2>Ingresos, gastos y GOP por mes</h2><div class="lienzo"><canvas data-grafico="resultado_mes" data-pagina="resultados"></canvas></div></div>
+  </div>
   <div class="rejilla r2 mt">
     <div class="tarjeta"><h2>De los ingresos al GOP2</h2><div class="lienzo alto"><canvas data-grafico="cascada" data-pagina="resultados"></canvas></div></div>
     <div class="tarjeta"><h2>Las 10 partidas de gasto más grandes{% if i.hay_ppto and not i.filtro_gastos %} <span class="suave">· frente al presupuesto</span>{% endif %}</h2><div class="lienzo alto"><canvas data-grafico="gastos" data-pagina="resultados"></canvas></div></div>
@@ -258,7 +269,7 @@
 {% if 'comparativa' in paginas_visibles %}
 <!-- ===================== COMPARATIVA ===================== -->
 <section class="pagina" id="comparativa">
-  <div class="cabecera-pagina"><h1>¿Qué hotel lo hace mejor?</h1><span class="suave">{{ i.periodo_texto }}</span></div>
+  <div class="cabecera-pagina"><h1>{% if i.es_grupo %}¿Qué hotel lo hace mejor?{% else %}¿Cómo evoluciona el hotel mes a mes?{% endif %}</h1><span class="suave">{% if i.es_grupo %}{{ i.periodo_texto }}{% else %}{{ i.titulo }}, últimos 12 meses{% endif %}</span></div>
   {% if i.es_grupo %}
   <div class="rejilla r2">
     <div class="tarjeta"><h2>% GOP, ocupación y labor cost</h2><div class="lienzo"><canvas data-grafico="comparativa" data-pagina="comparativa"></canvas></div></div>
@@ -282,7 +293,24 @@
       <tbody>{% for e in i.estructural %}<tr><td><b>{{ e.linea }} · {{ e.hotel }}</b></td><td class="d">{{ e.valor }}</td><td class="d">{{ e.mediana }}</td><td class="d mal">{{ e.exceso }}</td></tr>{% endfor %}</tbody></table>
   </div>{% endif %}
   {% else %}
-  <div class="tarjeta"><p class="vacio">Elige más de un hotel en el filtro para compararlos.</p></div>
+  <p class="nota">Con un solo hotel, la comparativa enseña sus últimos 12 meses frente al presupuesto y al año anterior.</p>
+  <div class="rejilla r2">
+    <div class="tarjeta"><h2>GOP de los últimos 12 meses <span class="suave">· barras: real; línea: presupuesto; discontinua: año anterior</span></h2><div class="lienzo"><canvas data-grafico="comparativa" data-pagina="comparativa"></canvas></div></div>
+    <div class="tarjeta"><h2>Margen GOP y labor cost por mes</h2><div class="lienzo"><canvas data-grafico="comparativa_margen" data-pagina="comparativa"></canvas></div></div>
+  </div>
+  <div class="tarjeta mt tabla-scroll">
+    <div class="cabecera-tabla"><h2>Indicadores mes a mes</h2></div>
+    <table>
+      <thead><tr><th>Mes</th><th class="d">Ingresos</th><th class="d">GOP</th><th class="d">% GOP</th><th class="d">GOP vs ppto</th><th class="d">GOP vs año ant.</th><th class="d">Ocupación</th><th class="d">vs año ant.</th><th class="d">ADR</th><th class="d">RevPAR</th><th class="d">Labor cost</th><th class="d">CPOR</th></tr></thead>
+      <tbody>{% for h in i.comparativa %}
+        <tr><td><a href="?meses={{ h.mes_id }}&amp;p=resumen"><b>{{ h.mes }}</b></a></td><td class="d">{{ h.ingresos }}</td><td class="d">{{ h.gop }}</td><td class="d">{{ h.gop_pct }}</td>
+          <td class="d">{% if h.gop_vs_ppto %}<span class="etiq {{ h.gop_vs_ppto.estado }}">{{ h.gop_vs_ppto.texto }}</span>{% else %}—{% endif %}</td>
+          <td class="d">{% if h.gop_vs_aa %}<span class="etiq {{ h.gop_vs_aa.estado }}">{{ h.gop_vs_aa.texto }}</span>{% else %}—{% endif %}</td>
+          <td class="d">{{ h.ocupacion }}</td><td class="d">{% if h.ocu_vs_aa %}<span class="etiq {{ h.ocu_vs_aa.estado }}">{{ h.ocu_vs_aa.texto }}</span>{% else %}—{% endif %}</td>
+          <td class="d">{{ h.adr }}</td><td class="d">{{ h.revpar }}</td><td class="d">{{ h.labor }}</td><td class="d">{{ h.cpor }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
   {% endif %}
 </section>
 {% endif %}

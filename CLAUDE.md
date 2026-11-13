@@ -72,6 +72,9 @@ tests/                   pytest: cifras de octubre 2026 y los 11 casos sembrados
 - Clic en un gráfico o en una fila → vista `detalle` (JSON) con las facturas o las reservas de donde sale la cifra.
 - Perfiles: dirección y contabilidad ven todo; el director de hotel ve resumen, ventas, resultados y desviaciones de su hotel.
 - Reservas: sin nombres ni datos de contacto de huéspedes. Canal, segmento, país, personas, noches e ingresos.
+- Diseño 3b (13 nov 2026, elegido por Lara en el lienzo «Cuádralo · diseños de la portada»): fondo amarillo cálido, tarjetas blancas, gráficos sobre amarillo suave, rojo/ámbar/verde suaves, letra Figtree servida desde static (sin Google Fonts), filtros en píldora. Real en barras de un color; presupuesto en línea; año anterior en línea discontinua. Cada KPI enseña presupuesto y año anterior.
+- Resumen: KPIs, franja «Hasta el presupuesto» (informe.franja_presupuesto: palancas sobre los ingresos que faltan), mosaico con el GOP mensual protagonista y «Qué hacer, por prioridad» al final con filtros de prioridad, hotel y tipo (portal/templates/portal/_acciones.html).
+- Un solo hotel (diseño 3d): lo que compara hoteles pasa a departamentos, partidas y meses; la Comparativa enseña los últimos 12 meses frente a presupuesto y año anterior. Se decide por el número de hoteles de la selección, con los mismos resultados precalculados.
 
 ## Cálculos (fuente de verdad: hoja estructura_informe y parametros)
 - Facturación de habitaciones = importe de alojamiento del operador. ADR = alojamiento / room nights. Room nights × ADR del operador solo sirve para comprobar el ratio.

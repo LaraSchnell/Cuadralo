@@ -1,0 +1,27 @@
+<div class="tarjeta mt tabla-scroll" id="acciones">
+  <div class="cabecera-tabla">
+    <h2>Qué hacer, por prioridad <span class="suave">· {{ i.total_alertas }} avisos</span></h2>
+    {% if i.todas_alertas %}
+    <div class="filtro-acciones" data-filtro-acciones>
+      <button type="button" data-nivel="" aria-pressed="true">Todas</button>
+      <button type="button" data-nivel="p1" aria-pressed="false">Urgente</button>
+      <button type="button" data-nivel="p2" aria-pressed="false">Revisar</button>
+      <button type="button" data-nivel="p3" aria-pressed="false">Vigilar</button>
+      {% if i.es_grupo %}<select data-filtro="hotel" aria-label="Filtrar por hotel"><option value="">Todos los hoteles</option>{% for h in i.hoteles_nombres %}<option>{{ h }}</option>{% endfor %}</select>{% endif %}
+      <select data-filtro="tipo" aria-label="Filtrar por tipo"><option value="">Todos los tipos</option><option>Cuadre</option><option>Ratio</option><option>Desviación</option>{% if i.es_grupo %}<option>Comparativa</option>{% endif %}</select>
+    </div>
+    {% endif %}
+  </div>
+  {% if i.todas_alertas %}
+  <table>
+    <thead><tr><th>Prioridad</th>{% if i.es_grupo %}<th>Hotel</th>{% endif %}<th>Tipo</th><th>Qué pasa</th><th>Cuánto</th><th class="ocultar-movil">Periodo</th><th></th></tr></thead>
+    <tbody>{% for a in i.todas_alertas %}
+      <tr class="fila-clic" data-ir="{{ a.pagina }}" data-nivel="{{ a.nivel }}" data-hotel="{{ a.hotel }}" data-tipo="{{ a.tipo }}">
+        <td><span class="prioridad {{ a.nivel }}">{{ a.nivel_txt }}</span></td>{% if i.es_grupo %}<td>{% if ", " in a.hotel %}<span title="{{ a.hotel }}">Varios hoteles</span>{% else %}{{ a.hotel|default:"Grupo" }}{% endif %}</td>{% endif %}<td class="suave">{{ a.tipo }}</td>
+        <td><b>{{ a.que }}</b><div class="suave pequeno">{{ a.detalle|truncatechars:140 }}</div></td>
+        <td>{{ a.cuanto }}</td><td class="ocultar-movil suave">{{ a.periodo }}</td><td class="d"><span class="enlace-ver">Ver ›</span></td></tr>
+    {% endfor %}</tbody>
+  </table>
+  <p class="vacio" data-sin-acciones hidden>Ningún aviso con estos filtros.</p>
+  {% else %}<p class="vacio">Nada que revisar: todo cuadra y no hay desviaciones.</p>{% endif %}
+</div>

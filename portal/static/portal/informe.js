@@ -30,9 +30,11 @@
   function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]; }); }
 
   // ---------- colores ----------
-  var COLOR = {principal: '#2563EB', comparacion: '#CBD5E1', gasto: '#F59E0B', resultado: '#10B981',
-               divergente: '#64748B', bien: '#10B981', mal: '#EF4444'};
-  var PALETA = ['#2563EB', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#94A3B8'];
+  // Diseño 3b: azul para lo real, naranja para el presupuesto, gris discontinuo para el año anterior,
+  // y rojo, ámbar y verde suaves solo cuando el color dice si algo va bien o mal.
+  var COLOR = {principal: '#1F4FD1', comparacion: '#B9C6E4', gasto: '#E9A23B', resultado: '#3E9B6E',
+               divergente: '#8A93A6', bien: '#5DB58A', mal: '#E07A6E', ppto: '#C77700', aa: '#8A93A6'};
+  var PALETA = ['#1F4FD1', '#5C7FE0', '#93A9EA', '#E9A23B', '#F3CC85', '#5DB58A', '#E07A6E', '#C9CFDB'];
   function claro(hex, a) {
     var n = parseInt(hex.slice(1), 16);
     return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
@@ -137,9 +139,9 @@
   // ---------- gráficos ----------
   if (window.Chart) {
     Chart.register(window.ChartDataLabels);
-    Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    Chart.defaults.font.family = '"Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     Chart.defaults.font.size = 12;
-    Chart.defaults.color = '#64748B';
+    Chart.defaults.color = '#5B6475';
   }
 
   function colorSerie(s, i, n, tipo) {
@@ -158,10 +160,12 @@
     var datasets = g.series.map(function (s, i) {
       var color = colorSerie(s, i, n, tipo);
       var d = {label: s.nombre, data: s.valores, backgroundColor: color, borderColor: color, borderRadius: tipo === 'donut' ? 0 : 5,
-               maxBarThickness: horizontal ? 22 : 46, _serie: s};
+               maxBarThickness: horizontal ? 22 : 46, order: 1, _serie: s};
       if (tipo === 'lineas' || s.tipo === 'line') {
         d.type = 'line'; d.backgroundColor = claro(COLOR[s.color] || PALETA[i], 0.12); d.fill = false; d.tension = 0.3;
         d.pointRadius = 4; d.pointHoverRadius = 6; d.borderWidth = 2.5;
+        if (s.color === 'aa') { d.borderDash = [6, 5]; }
+        if (tipo !== 'lineas') { d.order = 0; d.tension = 0.25; d.pointRadius = 5; d.pointBackgroundColor = '#fff'; d.pointBorderWidth = 2.5; }
       }
       if (tipo === 'cascada') {
         var acumulado = 0;
@@ -169,7 +173,7 @@
           if (g.totales[k]) { acumulado = v; return [0, v]; }
           var desde = acumulado; acumulado += v; return [desde, acumulado];
         });
-        d.backgroundColor = s.valores.map(function (v, k) { return g.totales[k] ? COLOR.principal : (v < 0 ? '#FCA5A5' : COLOR.resultado); });
+        d.backgroundColor = s.valores.map(function (v, k) { return g.totales[k] ? COLOR.principal : (v < 0 ? COLOR.mal : COLOR.resultado); });
       }
       return d;
     });
@@ -181,7 +185,7 @@
         legend: {display: g.series.length > 1 || tipo === 'donut', position: tipo === 'donut' ? 'right' : 'top', align: 'end',
                  labels: {boxWidth: 12, boxHeight: 12, usePointStyle: true}},
         tooltip: {
-          backgroundColor: '#0F172A', padding: 10, titleFont: {weight: '600'}, bodySpacing: 3,
+          backgroundColor: '#14213D', padding: 10, titleFont: {weight: '600'}, bodySpacing: 3,
           callbacks: {
             label: function (ctx) {
               var s = ctx.dataset._serie, t = s.ayudas[ctx.dataIndex] || '';
@@ -204,7 +208,7 @@
             return tipo === 'lineas' && ctx.datasetIndex > 0 ? 'bottom' : 'top';   // en líneas, la 2ª serie lleva el texto debajo
           },
           offset: 2, clamp: true,
-          color: tipo === 'donut' ? '#fff' : '#334155', font: {size: 11, weight: '600'}
+          color: tipo === 'donut' ? '#fff' : '#14213D', font: {size: 11, weight: '600'}
         }
       },
       onHover: function (e, el) { e.native.target.style.cursor = el.length && g.clic[el[0].index] ? 'pointer' : 'default'; },
@@ -217,7 +221,7 @@
       }
     };
     if (tipo !== 'donut') {
-      var ejeValor = {beginAtZero: tipo !== 'lineas', grace: tipo === 'lineas' ? '15%' : 0, grid: {color: '#F1F5F9'}, border: {display: false}, ticks: {callback: eje(g.formato), maxTicksLimit: 6}};
+      var ejeValor = {beginAtZero: tipo !== 'lineas', grace: tipo === 'lineas' ? '15%' : 0, grid: {color: '#EDE6D3'}, border: {display: false}, ticks: {callback: eje(g.formato), maxTicksLimit: 6}};
       var ejeCategoria = {grid: {display: false}, border: {display: false}, ticks: {autoSkip: false}};
       opciones.scales = horizontal ? {x: ejeValor, y: ejeCategoria} : {x: ejeCategoria, y: ejeValor};
       if (tipo === 'cascada') { opciones.plugins.legend.display = false; }
@@ -345,4 +349,33 @@
   });
 
   ir(document.getElementById(C.pagina) ? C.pagina : 'resumen');
+})();
+
+// Qué hacer, por prioridad: filtros de prioridad, hotel y tipo (solo esconden filas; no calculan nada).
+(function () {
+  var caja = document.querySelector('[data-filtro-acciones]');
+  if (!caja) { return; }
+  var filas = Array.prototype.slice.call(document.querySelectorAll('#acciones tbody tr'));
+  var vacio = document.querySelector('[data-sin-acciones]');
+  var estado = {nivel: '', hotel: '', tipo: ''};
+  function aplicar() {
+    var visibles = 0;
+    filas.forEach(function (f) {
+      var ok = (!estado.nivel || f.dataset.nivel === estado.nivel) &&
+               (!estado.hotel || (f.dataset.hotel || '').split(', ').indexOf(estado.hotel) >= 0) &&
+               (!estado.tipo || f.dataset.tipo === estado.tipo);
+      f.hidden = !ok; if (ok) { visibles++; }
+    });
+    if (vacio) { vacio.hidden = visibles > 0; }
+  }
+  caja.querySelectorAll('button[data-nivel]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      estado.nivel = b.dataset.nivel;
+      caja.querySelectorAll('button[data-nivel]').forEach(function (o) { o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); });
+      aplicar();
+    });
+  });
+  caja.querySelectorAll('select[data-filtro]').forEach(function (s) {
+    s.addEventListener('change', function () { estado[s.dataset.filtro] = s.value; aplicar(); });
+  });
 })();
