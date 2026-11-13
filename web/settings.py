@@ -128,3 +128,10 @@ LOGGING = {
     'handlers': {'console': {'class': 'logging.StreamHandler'}},
     'root': {'handlers': ['console'], 'level': 'INFO'},
 }
+# En Azure, los errores (con su traza) se guardan también en /home/LogFiles, que no se borra al reiniciar.
+# Se leen desde el portal (Herramientas avanzadas) o con el flujo «Diagnóstico» de GitHub. Solo datos ficticios hoy;
+# con clientes reales, la traza no lleva cifras, solo el punto del código que falla.
+if os.environ.get('WEBSITE_SITE_NAME') and os.path.isdir('/home/LogFiles'):
+    LOGGING['handlers']['archivo'] = {'class': 'logging.handlers.RotatingFileHandler', 'level': 'ERROR',
+                                      'filename': '/home/LogFiles/cuadralo-errores.log', 'maxBytes': 1_000_000, 'backupCount': 3}
+    LOGGING['root']['handlers'].append('archivo')
