@@ -222,11 +222,19 @@ def archivos_de(carpeta, sub):
 
 
 if __name__ == '__main__':
+    # Para revisar a mano el antes y el después: escribe el modelo común en un solo Excel, una hoja por tabla.
+    # En mov_contabilidad se añaden las columnas que pone el plan de cuentas (Bloque, Línea, Id hotel, Mes).
+    from cuadralo.calculos import asignar_lineas
     carpeta, cfg_path, salida = sys.argv[1:4]
     cfg = pd.read_excel(cfg_path, sheet_name=None)
+    mov = asignar_lineas(normalizar_bc(archivos_de(carpeta, 'business_central')), cfg)
+    tablas = {
+        'mov_contabilidad': mov,
+        'pms': normalizar_operador(archivos_de(carpeta, 'operador'), cfg),
+        'presupuesto': normalizar_presupuesto(archivos_de(carpeta, 'presupuesto'), cfg),
+        'reservas': normalizar_reservas(archivos_de(carpeta, 'reservas'), cfg),
+    }
     with pd.ExcelWriter(salida) as w:
-        normalizar_bc(archivos_de(carpeta, 'business_central')).to_excel(w, sheet_name='mov_contabilidad', index=False)
-        normalizar_operador(archivos_de(carpeta, 'operador'), cfg).to_excel(w, sheet_name='pms', index=False)
-        normalizar_presupuesto(archivos_de(carpeta, 'presupuesto'), cfg).to_excel(w, sheet_name='presupuesto', index=False)
-        normalizar_reservas(archivos_de(carpeta, 'reservas'), cfg).to_excel(w, sheet_name='reservas', index=False)
+        for hoja, df in tablas.items():
+            df.drop(columns='Archivo', errors='ignore').to_excel(w, sheet_name=hoja, index=False)
     print('Normalizado en', salida)
