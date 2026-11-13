@@ -1,4 +1,5 @@
 """Procesado de las cargas de una empresa: archivos subidos → modelo común en la base de datos."""
+import hashlib
 import io
 from decimal import Decimal
 
@@ -7,7 +8,8 @@ from django.db import transaction
 
 from cuadralo import calculos, informe, normalizar
 from . import precalculo
-from .models import Carga, FilaOperador, FilaPresupuesto, MovimientoContable, Reserva
+from .models import (Carga, FilaOperador, FilaPresupuesto, MovimientoContable, Reserva, ResultadoDesviacion,
+                     ResultadoEmpresa)
 
 TAMANO_LOTE = 1000  # filas por inserción masiva; mssql-django reparte cada lote para no pasar de 2.100 parámetros
 
@@ -35,18 +37,75 @@ def _texto(valor):
     return '' if valor is None or (isinstance(valor, float) and pd.isna(valor)) else str(valor)
 
 
+MESES_TXT = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre',
+             'noviembre', 'diciembre']
+
+
+def _mes_txt(ts):
+    return f'{MESES_TXT[ts.month - 1]} {ts.year}'
+
+
+def _repetidos(df, cargas, col_fecha, col_hotel, quitar_antiguos):
+    """Meses y hoteles que llegan en más de un archivo del mismo tipo.
+
+    Devuelve {carga: aviso} para la carga más reciente de cada repetición y, si quitar_antiguos, deja solo las filas
+    del archivo más reciente para ese mes y hotel (así nada se cuenta dos veces). En Business Central no hace falta
+    quitar nada: los movimientos repetidos ya se han quitado por «Nº mov.».
+    """
+    avisos = {}
+    if not len(df):
+        return df, avisos
+    mes = df[col_fecha].dt.to_period('M')
+    pares = df.attrs.get('cobertura')
+    if pares is None:
+        pares = pd.DataFrame({'mes': mes, 'hotel': df[col_hotel], 'archivo': df['Archivo']}).drop_duplicates()
+    for (m, h), grupo in pares.groupby(['mes', 'hotel']):
+        archivos = sorted(grupo['archivo'])
+        if len(archivos) < 2:
+            continue
+        nueva = cargas[archivos[-1]]
+        antiguas = ', '.join(f'«{cargas[a].nombre_original}»' for a in archivos[:-1])
+        avisos.setdefault(nueva, {}).setdefault(antiguas, set()).add((m.to_timestamp(), h))
+        if quitar_antiguos:
+            df = df[~((mes == m) & (df[col_hotel] == h) & (df['Archivo'] != archivos[-1]))]
+            mes = df[col_fecha].dt.to_period('M')
+    textos = {}
+    for carga, por_archivo in avisos.items():
+        partes = []
+        for antiguas, pares_ in por_archivo.items():
+            meses = sorted({m for m, _ in pares_})
+            hoteles = sorted({str(h) for _, h in pares_})
+            partes.append(f'{", ".join(_mes_txt(m) for m in meses)} ({", ".join(hoteles)}) ya venía en {antiguas}')
+        textos[carga] = ('Revisa si has cargado dos veces el mismo mes: ' + '; '.join(partes) +
+                         '. No se cuenta dos veces: se usan los datos de este archivo, el más reciente.')
+    return df, textos
+
+
 def procesar_empresa(empresa):
     """Normaliza todas las cargas vigentes de la empresa y sustituye su modelo común.
 
     Si algo falla, no se toca lo que ya había y las cargas nuevas quedan en error con el motivo.
+    Normalmente se llama desde el procesado en segundo plano (portal/segundo_plano.py), nunca mientras la web espera.
     """
     cfg = leer_configuracion(empresa)
-    vigentes = list(empresa.cargas.exclude(estado__in=['sustituida', 'error']).order_by('creada'))
+    vigentes = list(empresa.cargas.filter(estado__in=['pendiente', 'ok']).order_by('creada', 'id'))
     por_tipo = {t: [c for c in vigentes if c.tipo == t] for t, _ in Carga.TIPOS}
     try:
-        mov = normalizar.normalizar_bc([_abrir(c.archivo, c.nombre_original) for c in por_tipo[Carga.BUSINESS_CENTRAL]])
-        pms = normalizar.normalizar_operador([_abrir(c.archivo, c.nombre_original) for c in por_tipo[Carga.OPERADOR]], cfg)
-        pres = normalizar.normalizar_presupuesto([_abrir(c.archivo, c.nombre_original) for c in por_tipo[Carga.PRESUPUESTO]], cfg)
+        cargas_bc, cargas_op, cargas_pres = (por_tipo[Carga.BUSINESS_CENTRAL], por_tipo[Carga.OPERADOR],
+                                             por_tipo[Carga.PRESUPUESTO])
+        mov = normalizar.normalizar_bc([_abrir(c.archivo, c.nombre_original) for c in cargas_bc])
+        pms = normalizar.normalizar_operador([_abrir(c.archivo, c.nombre_original) for c in cargas_op], cfg)
+        pres = normalizar.normalizar_presupuesto([_abrir(c.archivo, c.nombre_original) for c in cargas_pres], cfg)
+        # Meses repetidos entre archivos del mismo tipo: aviso y, en operador y presupuesto, manda el más reciente
+        mov, av_bc = _repetidos(mov, cargas_bc, 'Fecha de registro', 'Finca', quitar_antiguos=False)
+        pms, av_op = _repetidos(pms, cargas_op, 'Fecha', 'Id hotel', quitar_antiguos=True)
+        pres, av_pres = _repetidos(pres, cargas_pres, 'Fecha', 'Id hotel', quitar_antiguos=True)
+        avisos = {**av_bc, **av_op, **av_pres}
+        for tabla in (mov, pms, pres):
+            tabla.attrs.clear()
+            if 'Archivo' in tabla.columns:
+                tabla.drop(columns='Archivo', inplace=True)
+        mov, pms, pres = mov.reset_index(drop=True), pms.reset_index(drop=True), pres.reset_index(drop=True)
         # Reservas: es la tabla más grande. Si ya hay reservas guardadas, solo se leen los archivos nuevos y sus
         # reservas sustituyen a las que tengan el mismo número; así una subida en directo tarda segundos.
         res_cargas = por_tipo[Carga.RESERVAS]
@@ -65,11 +124,13 @@ def procesar_empresa(empresa):
             if fincas:
                 raise normalizar.ErrorDeCarga(f'Fincas que no están en la configuración: {sorted(fincas)}')
     except (ValueError, KeyError) as e:
+        mensaje = str(e) if isinstance(e, normalizar.ErrorDeCarga) else \
+            f'El archivo no tiene el formato esperado ({type(e).__name__}: {e}). Revisa que el tipo elegido es el correcto.'
         pendientes = [c for c in vigentes if c.estado == 'pendiente']
         for c in pendientes:
-            c.estado, c.mensaje = 'error', str(e)
+            c.estado, c.mensaje = 'error', mensaje
             c.save(update_fields=['estado', 'mensaje'])
-        return False, str(e)
+        return False, mensaje
 
     # Las filas se construyen recorriendo columnas con zip (no con iterrows, que es unas 10 veces más lento)
     # y se guardan con inserción masiva (bulk_create). Ver "Requisitos de rendimiento" en CLAUDE.md.
@@ -126,10 +187,6 @@ def procesar_empresa(empresa):
                     res['Salida'], res['Noches'], res['Adultos'], res['Niños'], res['Nacionalidad'], res['Motivo'],
                     res['Ingresos alojamiento'])],
                 batch_size=TAMANO_LOTE)
-        for c in vigentes:
-            if c.estado != 'ok':
-                c.estado, c.mensaje = 'ok', ''
-                c.save(update_fields=['estado', 'mensaje'])
     # Precálculo: las tablas del informe se calculan aquí una vez; la web solo las lee.
     if len(mov) and len(pms):
         res_todas = res if (res is not None and not incremental) else reservas_empresa(empresa)
@@ -139,16 +196,56 @@ def procesar_empresa(empresa):
         for mes in datos.meses[:3]:
             for hotel in datos.nombres:
                 datos.desviaciones(hotel, mes)
+    else:
+        # Sin contabilidad o sin operador no hay informe: se borra el anterior para no enseñar datos eliminados
+        ResultadoDesviacion.objects.filter(empresa=empresa).delete()
+        ResultadoEmpresa.objects.filter(empresa=empresa).delete()
+    # Las cargas pasan a «Procesada» al final, con el informe ya guardado: así la web nunca lee un informe a medias
+    for c in vigentes:
+        aviso = avisos.get(c, '')
+        if c.estado != 'ok' or c.mensaje or c.aviso != aviso:
+            c.estado, c.mensaje, c.aviso = 'ok', '', aviso
+            c.save(update_fields=['estado', 'mensaje', 'aviso'])
     n_res = Reserva.objects.filter(empresa=empresa).count()
     return True, (f'{len(mov)} movimientos, {len(pms)} filas del operador, {len(pres)} de presupuesto'
                   f' y {n_res} reservas procesados.')
 
 
-def registrar_carga(empresa, usuario, tipo, archivo):
+def huella_de(archivo):
+    """Huella SHA-256 del contenido: dos archivos idénticos tienen la misma, aunque se llamen distinto."""
+    h = hashlib.sha256()
+    for trozo in archivo.chunks():
+        h.update(trozo)
+    archivo.seek(0)
+    return h.hexdigest()
+
+
+def carga_identica(empresa, huella):
+    """Carga vigente de la empresa con exactamente el mismo contenido, o None."""
+    return (Carga.objects.filter(empresa=empresa, huella=huella, estado__in=['pendiente', 'ok'])
+            .select_related('usuario').first())
+
+
+def registrar_carga(empresa, usuario, tipo, archivo, huella=None):
     """Guarda un archivo subido. Si ya había uno con el mismo nombre y tipo, el anterior queda sustituido."""
     Carga.objects.filter(empresa=empresa, tipo=tipo, nombre_original=archivo.name).exclude(
-        estado='sustituida').update(estado='sustituida')
-    return Carga.objects.create(empresa=empresa, usuario=usuario, tipo=tipo, archivo=archivo, nombre_original=archivo.name)
+        estado__in=['sustituida', 'eliminada']).update(estado='sustituida')
+    if huella is None and hasattr(archivo, 'chunks'):
+        huella = huella_de(archivo)
+    return Carga.objects.create(empresa=empresa, usuario=usuario, tipo=tipo, archivo=archivo,
+                                nombre_original=archivo.name, huella=huella or '')
+
+
+def eliminar_carga(carga, usuario):
+    """Quita una carga del informe. El registro queda (quién y cuándo) y el archivo se borra del Blob."""
+    from django.utils import timezone
+    if carga.tipo == Carga.RESERVAS:
+        # Las reservas se cargan de forma incremental: se rehacen enteras con los archivos que quedan
+        Reserva.objects.filter(empresa=carga.empresa).delete()
+    if carga.archivo:
+        carga.archivo.delete(save=False)
+    carga.estado, carga.eliminada_por, carga.eliminada_en = 'eliminada', usuario, timezone.now()
+    carga.save(update_fields=['estado', 'eliminada_por', 'eliminada_en', 'archivo'])
 
 
 def datos_empresa(empresa):

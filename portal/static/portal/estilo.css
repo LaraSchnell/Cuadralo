@@ -272,3 +272,10 @@ table.todo tr.oculta { display: table-row; }
   .panel { position: fixed; left: 10px; right: 10px; top: auto; }
   .lienzo { height: 240px; }
 }
+
+/* Avisos de carga y procesado en segundo plano */
+.mensaje.warning, .mensaje.aviso { background: #FEF3C7; color: #92400E; }
+.estado.pendiente { background: #DBEAFE; color: #1E40AF; }
+.aviso-carga { margin-top: 6px; font-size: 12px; color: #92400E; background: #FEF3C7; border-radius: 6px; padding: 6px 8px; text-align: left; white-space: normal; }
+.error-carga { margin-top: 6px; font-size: 12px; color: #991B1B; white-space: normal; text-align: left; }
+.boton-eliminar { background: none; border: 1px solid #FCA5A5; color: #B91C1C; border-radius: 6px; padding: 3px 8px; font-size: 12px; cursor: pointer; font-family: inherit; }

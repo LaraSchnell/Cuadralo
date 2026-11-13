@@ -20,8 +20,25 @@ def perfil_requerido(vista):
             raise PermissionDenied('Tu usuario no pertenece a ninguna empresa.')
         request.perfil = perfil
         request.empresa = perfil.empresa
+        _relanzar_si_quedo_a_medias(request.empresa)
+        _registrar_actividad(request, vista.__name__)
         return vista(request, *args, **kwargs)
     return envoltura
+
+
+def _relanzar_si_quedo_a_medias(empresa):
+    """Si Azure reinició la web en mitad de un procesado, se relanza en la siguiente visita."""
+    from . import segundo_plano
+    if empresa.necesita_procesar and not segundo_plano.en_marcha(empresa.id):
+        segundo_plano.lanzar(empresa.id)
+        empresa.refresh_from_db(fields=['necesita_procesar'])
+
+
+def _registrar_actividad(request, accion):
+    """Registro de quién ve qué: página, filtros y exportaciones (RGPD). Nunca guarda cifras ni datos."""
+    from .models import RegistroActividad
+    detalle = request.get_full_path()[:500]
+    RegistroActividad.objects.create(usuario=request.user, empresa=request.empresa, accion=accion[:40], detalle=detalle)
 
 
 @receiver(user_logged_in)

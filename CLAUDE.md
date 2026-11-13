@@ -21,7 +21,15 @@ Un hotel grande puede tener 20.000-50.000 apuntes al mes (hasta ~1,8 millones de
 6. **Paginación y filtros en la base de datos**: ninguna tabla de apuntes carga todas las filas en memoria ni en el navegador.
 7. **Prueba con un hotel gigante** ficticio (50.000 apuntes al mes, 34 meses) antes de dar por terminado el paso 3. Objetivo: subir y procesar un mes < 2 min; abrir informe y apuntes < 2 s.
 
-Estado (12 nov 2026, tarde): cumplidos 1, 2, 4 y 5 (precálculo en portal/precalculo.py: al procesar se guardan las tablas del informe en ResultadoEmpresa y las desviaciones por hotel y mes en ResultadoDesviacion; la web solo las lee). 6 en parte: el detalle de facturas y reservas y la página de apuntes filtran y paginan en la base de datos. Pendientes 3 (procesado en segundo plano) y 7 (hotel gigante).
+Estado (13 nov 2026): cumplidos 1, 2, 3, 4 y 5. Precálculo en portal/precalculo.py: al procesar se guardan las tablas del informe en ResultadoEmpresa y las desviaciones por hotel y mes en ResultadoDesviacion; la web solo las lee. Procesado en segundo plano en portal/segundo_plano.py: hilo aparte, estado «Procesando…», se relanza solo si Azure reinicia a mitad (Empresa.necesita_procesar). 6 en parte: el detalle de facturas y reservas y la página de apuntes filtran y paginan en la base de datos. Pendiente 7 (hotel gigante).
+
+## Cargas (desde el 13 nov 2026)
+- Huella SHA-256 de cada archivo (Carga.huella): un archivo idéntico a otro vigente no se vuelve a cargar y se avisa de quién y cuándo lo subió.
+- Mismo mes y hotel en dos archivos del mismo tipo: aviso «Revisa si has cargado dos veces el mismo mes» en la carga más reciente (Carga.aviso). Nada se cuenta dos veces: en Business Central, un mismo «Nº mov.» solo cuenta una vez (manda el archivo más reciente); en operador y presupuesto manda el archivo más reciente para ese mes y hotel; en reservas, el más reciente por «Nº reserva».
+- Eliminar carga (solo contabilidad): queda el registro con quién y cuándo, se borra el archivo del Blob y se reprocesa.
+- Cualquier error, también los inesperados, queda escrito en la carga. Si existe la variable AVISOS_WEBHOOK_URL, se manda a n8n (que envía el correo).
+- RegistroActividad: cada página, detalle y exportación que pide un usuario (sin cifras). Se ve en /equipo/.
+- Las pruebas procesan en el momento (conftest.py pone PROCESADO_SEGUNDO_PLANO = False).
 
 ## Aislamiento entre empresas (lo más importante del producto)
 - La empresa sale SIEMPRE del perfil del usuario (portal/acceso.py), nunca de la URL. Toda consulta a tablas de clientes filtra por `empresa=request.empresa`.

@@ -22,6 +22,12 @@ class Empresa(models.Model):
                                      help_text='Excel de configuración: hoteles, plan de cuentas, conceptos del operador, parámetros.')
     datos_ficticios = models.BooleanField(default=False, help_text='Empresa de demostración: el informe lo indica en cada página.')
     creada = models.DateTimeField(auto_now_add=True)
+    necesita_procesar = models.BooleanField(
+        default=False, help_text='Hay cargas nuevas o eliminadas sin procesar. El procesado en segundo plano lo pone a falso.')
+
+    @property
+    def procesando(self):
+        return self.necesita_procesar or self.cargas.filter(estado='pendiente').exists()
 
     def __str__(self):
         return self.nombre
@@ -60,7 +66,8 @@ class Carga(models.Model):
         (PRESUPUESTO, 'Presupuesto'),
         (RESERVAS, 'Reservas del PMS (Mews)'),
     ]
-    ESTADOS = [('pendiente', 'Pendiente'), ('ok', 'Procesada'), ('error', 'Error'), ('sustituida', 'Sustituida')]
+    ESTADOS = [('pendiente', 'Procesando…'), ('ok', 'Procesada'), ('error', 'Error'), ('sustituida', 'Sustituida'),
+               ('eliminada', 'Eliminada')]
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='cargas')
     usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     tipo = models.CharField(max_length=20, choices=TIPOS)
@@ -69,6 +76,16 @@ class Carga(models.Model):
     creada = models.DateTimeField(auto_now_add=True)
     estado = models.CharField(max_length=12, choices=ESTADOS, default='pendiente')
     mensaje = models.TextField(blank=True)
+    aviso = models.TextField(blank=True, help_text='Advertencias que no impiden procesar, p. ej. meses que ya venían en otro archivo.')
+    huella = models.CharField(max_length=64, blank=True, db_index=True,
+                              help_text='Huella SHA-256 del contenido: dos archivos idénticos tienen la misma huella.')
+    eliminada_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                      related_name='cargas_eliminadas')
+    eliminada_en = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def vigente(self):
+        return self.estado in ('pendiente', 'ok')
 
     class Meta:
         ordering = ['-creada']
@@ -88,6 +105,21 @@ class InteresModulo(models.Model):
         unique_together = [('empresa', 'usuario', 'modulo')]
         verbose_name = 'interés en un módulo'
         verbose_name_plural = 'interés en módulos opcionales'
+
+
+class RegistroActividad(models.Model):
+    """Qué página ve o qué exporta cada usuario (RGPD: registro de accesos a los datos)."""
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
+    fecha = models.DateTimeField(auto_now_add=True)
+    accion = models.CharField(max_length=40, help_text='Vista: inicio, detalle, apuntes, exportar, subir, cargas, eliminar…')
+    detalle = models.CharField(max_length=500, blank=True, help_text='Página y filtros pedidos (parámetros de la URL).')
+
+    class Meta:
+        ordering = ['-fecha']
+        indexes = [models.Index(fields=['empresa', 'fecha'])]
+        verbose_name = 'actividad de usuario'
+        verbose_name_plural = 'actividad de usuarios'
 
 
 class RegistroAcceso(models.Model):

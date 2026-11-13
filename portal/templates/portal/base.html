@@ -38,6 +38,7 @@
   <main>
     {% block barra %}{% endblock %}
     <div class="contenido">
+      {% if empresa.procesando and request.resolver_match.url_name == 'inicio' %}<div class="mensaje aviso">Se están procesando archivos nuevos: estás viendo el informe anterior. <a href="{% url 'cargas' %}">Ver estado</a></div>{% endif %}
       {% for m in messages %}<div class="mensaje {{ m.tags }}">{{ m }}</div>{% endfor %}
       {% block contenido %}{% endblock %}
     </div>

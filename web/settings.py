@@ -41,6 +41,11 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'web.urls'
+
+# Procesado de archivos en un hilo aparte (portal/segundo_plano.py). En las pruebas se desactiva (en el momento).
+PROCESADO_SEGUNDO_PLANO = os.environ.get('PROCESADO_SEGUNDO_PLANO', '1') == '1'
+# Webhook de n8n que recibe los errores de carga y manda el correo. Vacío = no se avisa.
+AVISOS_WEBHOOK_URL = os.environ.get('AVISOS_WEBHOOK_URL', '')
 TEMPLATES = [{
     'BACKEND': 'django.template.backends.django.DjangoTemplates',
     'DIRS': [],

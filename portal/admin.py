@@ -1,7 +1,7 @@
 """Panel interno del equipo de Cuádralo (/equipo/). Los clientes no tienen acceso."""
 from django.contrib import admin
 
-from .models import Carga, Empresa, InteresModulo, Perfil, RegistroAcceso
+from .models import Carga, Empresa, InteresModulo, Perfil, RegistroAcceso, RegistroActividad
 
 
 @admin.register(Empresa)
@@ -18,7 +18,7 @@ class PerfilAdmin(admin.ModelAdmin):
 
 @admin.register(Carga)
 class CargaAdmin(admin.ModelAdmin):
-    list_display = ('creada', 'empresa', 'tipo', 'nombre_original', 'usuario', 'estado')
+    list_display = ('creada', 'empresa', 'tipo', 'nombre_original', 'usuario', 'estado', 'eliminada_por', 'eliminada_en')
     list_filter = ('empresa', 'tipo', 'estado')
 
 
@@ -32,3 +32,17 @@ class RegistroAccesoAdmin(admin.ModelAdmin):
 class InteresModuloAdmin(admin.ModelAdmin):
     list_display = ('fecha', 'empresa', 'usuario', 'modulo')
     list_filter = ('modulo', 'empresa')
+
+
+@admin.register(RegistroActividad)
+class RegistroActividadAdmin(admin.ModelAdmin):
+    """Quién vio qué página y qué exportó. Solo lectura: es un registro de auditoría."""
+    list_display = ('fecha', 'usuario', 'empresa', 'accion', 'detalle')
+    list_filter = ('empresa', 'accion')
+    search_fields = ('usuario__username', 'detalle')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

@@ -10,7 +10,8 @@ from urllib.parse import urlencode
 from django.http import Http404, HttpResponse, JsonResponse
 from django.db.models import Count, Max, Sum
 from django.db.models.functions import Abs
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.urls import reverse
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST
@@ -19,10 +20,10 @@ from cuadralo import apuntes as apuntes_mod
 from cuadralo import calculos, informe
 from cuadralo import exportar as exportar_xlsx
 from .acceso import perfil_requerido
-from . import precalculo
-from .models import Carga, InteresModulo, MovimientoContable, Perfil, Reserva
-from .procesar import (datos_empresa, leer_configuracion, presupuesto_empresa, procesar_empresa, registrar_carga,
-                       reservas_empresa)
+from . import precalculo, procesar, segundo_plano
+from .models import Carga, InteresModulo, MovimientoContable, Perfil, Reserva, ResultadoEmpresa
+from .procesar import (carga_identica, datos_empresa, huella_de, leer_configuracion, presupuesto_empresa,
+                       registrar_carga, reservas_empresa)
 
 MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
          'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -41,7 +42,9 @@ _CANDADO_DATOS = threading.Lock()
 
 def _version(empresa):
     v = Carga.objects.filter(empresa=empresa, estado='ok').aggregate(n=Count('id'), ultima=Max('id'))
-    return (v['n'], v['ultima'], empresa.configuracion.name)
+    # El último precálculo guardado también cuenta: cada procesado crea filas nuevas en ResultadoEmpresa
+    pre = ResultadoEmpresa.objects.filter(empresa=empresa).aggregate(m=Max('id'))['m']
+    return (v['n'], v['ultima'], empresa.configuracion.name, pre)
 
 
 def obtener_datos(empresa):
@@ -64,10 +67,11 @@ def _cargar_datos(empresa, version):
     cfg = leer_configuracion(empresa)
     datos = precalculo.cargar(empresa, cfg)
     if datos is None:
-        if not empresa.cargas.filter(estado='ok').exists():
-            return None, None
-        procesar_empresa(empresa)
-        datos = precalculo.cargar(empresa, cfg)
+        # Sin precálculo (versión anterior o cargas eliminadas): se rehace en segundo plano, nunca con la web esperando
+        tipos = set(empresa.cargas.filter(estado='ok').values_list('tipo', flat=True))
+        if {Carga.BUSINESS_CENTRAL, Carga.OPERADOR} <= tipos and not segundo_plano.en_marcha(empresa.id):
+            segundo_plano.lanzar(empresa.id)
+            datos = precalculo.cargar(empresa, cfg)
     if datos is None or not datos.meses:
         return None, None
     _CACHE_DATOS[empresa.id] = (version, datos, cfg)
@@ -435,15 +439,49 @@ def subir(request):
         if malos:
             messages.error(request, f'Solo se aceptan archivos .xlsx: {", ".join(malos)}')
             return redirect('subir')
+        nuevos = 0
         for a in archivos:
-            registrar_carga(request.empresa, request.user, tipo, a)
-        ok, mensaje = procesar_empresa(request.empresa)
-        (messages.success if ok else messages.error)(request, mensaje)
-        return redirect('inicio' if ok else 'cargas')
+            huella = huella_de(a)
+            igual = carga_identica(request.empresa, huella)
+            if igual:
+                quien = igual.usuario.username if igual.usuario else 'otro usuario'
+                messages.warning(request, (
+                    f'«{a.name}» no se ha subido: es idéntico a «{igual.nombre_original}», que subió {quien} el '
+                    f'{timezone.localtime(igual.creada):%d/%m/%Y a las %H:%M}. Si quieres cambiarlo, elimina antes '
+                    f'el anterior en el historial de cargas.'))
+                continue
+            registrar_carga(request.empresa, request.user, tipo, a, huella)
+            nuevos += 1
+        if nuevos:
+            segundo_plano.lanzar(request.empresa.id)
+            messages.success(request, f'{nuevos} archivo(s) recibido(s). Se están procesando: el informe se '
+                                      'actualizará solo en unos minutos. Puedes seguir trabajando.')
+        return redirect('cargas')
     return render(request, 'portal/subir.html', {'empresa': request.empresa, 'perfil': request.perfil, 'tipos': Carga.TIPOS})
 
 
 @perfil_requerido
 def cargas(request):
-    lista = Carga.objects.filter(empresa=request.empresa).select_related('usuario')[:200]
-    return render(request, 'portal/cargas.html', {'empresa': request.empresa, 'perfil': request.perfil, 'cargas': lista})
+    lista = (Carga.objects.filter(empresa=request.empresa).exclude(estado='eliminada')
+             .select_related('usuario')[:200])
+    return render(request, 'portal/cargas.html', {
+        'empresa': request.empresa, 'perfil': request.perfil, 'cargas': lista,
+        'procesando': request.empresa.procesando})
+
+
+@require_POST
+@perfil_requerido
+def eliminar_carga(request, carga_id):
+    if not request.perfil.puede_subir:
+        raise PermissionDenied('Tu usuario no puede eliminar archivos.')
+    # Aislamiento: la carga se busca SOLO dentro de la empresa del usuario
+    carga = get_object_or_404(Carga, id=carga_id, empresa=request.empresa)
+    if carga.estado == 'eliminada':
+        return redirect('cargas')
+    if carga.estado == 'pendiente':
+        messages.error(request, 'Espera a que termine de procesarse para eliminarlo.')
+        return redirect('cargas')
+    procesar.eliminar_carga(carga, request.user)
+    segundo_plano.lanzar(request.empresa.id)
+    messages.success(request, f'«{carga.nombre_original}» eliminado. El informe se está recalculando sin ese archivo.')
+    return redirect('cargas')

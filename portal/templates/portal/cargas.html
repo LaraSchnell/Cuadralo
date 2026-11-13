@@ -3,18 +3,28 @@
 {% block contenido %}
 <h1>Historial de cargas</h1>
 <p class="subtitulo">Quién subió cada archivo, cuándo y con qué resultado.</p>
+{% if procesando %}
+<div class="mensaje aviso">Procesando archivos… Esta página se actualiza sola. Mientras tanto el informe enseña los datos anteriores.</div>
+{% endif %}
 <div class="tarjeta tabla-scroll">
   <table>
-    <thead><tr><th>Fecha</th><th>Archivo</th><th>Tipo</th><th>Usuario</th><th>Estado</th></tr></thead>
+    <thead><tr><th>Fecha</th><th>Archivo</th><th>Tipo</th><th>Usuario</th><th>Estado</th>{% if perfil.puede_subir %}<th></th>{% endif %}</tr></thead>
     <tbody>
     {% for c in cargas %}
       <tr><td>{{ c.creada|date:"d/m/Y H:i" }}</td><td>{{ c.nombre_original }}</td><td>{{ c.get_tipo_display }}</td>
           <td>{{ c.usuario.username|default:"—" }}</td>
-          <td><span class="estado {{ c.estado }}">{{ c.get_estado_display }}</span>{% if c.mensaje %}<div class="nota" style="white-space:normal;text-align:right">{{ c.mensaje }}</div>{% endif %}</td></tr>
+          <td><span class="estado {{ c.estado }}">{{ c.get_estado_display }}</span>
+              {% if c.mensaje %}<div class="error-carga">{{ c.mensaje }}</div>{% endif %}
+              {% if c.aviso %}<div class="aviso-carga">⚠ {{ c.aviso }}</div>{% endif %}</td>
+          {% if perfil.puede_subir %}<td>{% if c.estado != 'pendiente' %}
+            <form method="post" action="{% url 'eliminar_carga' c.id %}"
+                  onsubmit="return confirm('¿Eliminar «{{ c.nombre_original|escapejs }}»? Sus datos dejarán de contar en el informe.');">
+              {% csrf_token %}<button type="submit" class="boton-eliminar">Eliminar</button></form>{% endif %}</td>{% endif %}</tr>
     {% empty %}
-      <tr><td colspan="5">Todavía no hay cargas.</td></tr>
+      <tr><td colspan="6">Todavía no hay cargas.</td></tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
 {% endblock %}
+{% block scripts %}{% if procesando %}<script>setTimeout(function () { location.reload(); }, 5000);</script>{% endif %}{% endblock %}

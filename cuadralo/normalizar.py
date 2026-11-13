@@ -50,7 +50,7 @@ def normalizar_operador(archivos, cfg):
     conceptos = cfg['conceptos_pms']
     nombre2id = dict(zip(hoteles['Hotel'], hoteles['Id hotel']))
     filas = []
-    for archivo in archivos:
+    for i, archivo in enumerate(archivos):
         df, raw = leer_con_cabecera(archivo, 'Hotel')
         titulo = str(raw.iloc[0, 0]).lower()
         mes = next((v for k, v in MESES_LARGOS.items() if k in titulo), None)
@@ -73,21 +73,43 @@ def normalizar_operador(archivos, cfg):
                     'Concepto': c['Concepto'], 'Medida': c['Medida'],
                     'Valor': float(r[c['Columna del operador']]),
                     'Línea del informe': c['Línea del informe (para cuadrar con BC)'],
-                    'Columna del operador': c['Columna del operador'],
+                    'Columna del operador': c['Columna del operador'], 'Archivo': i,
                 })
     return pd.DataFrame(filas)
 
 
+COLUMNAS_BC = ['Nº mov.', 'Fecha registro', 'Fecha documento', 'Nº documento', 'Nº documento externo', 'Nº cuenta',
+               'Descripción', 'Importe', 'Importe IVA', 'Nombre origen', 'Cód. dimensión 1 (FINCA)',
+               'Cód. dimensión 2 (CECO)', 'Cód. EFE']
+
+
 def normalizar_bc(archivos):
-    partes = [leer_con_cabecera(a, 'Nº mov.')[0] for a in archivos]
+    """Movimientos de Business Central → mov_contabilidad.
+
+    Columna «Archivo»: posición del archivo en la lista (sirve para avisar de meses repetidos).
+    Un mismo movimiento (mismo «Nº mov.», que en Business Central es único) que llega en varios archivos se cuenta
+    una sola vez: manda el del archivo más reciente (el último de la lista). Las columnas de más se ignoran.
+    """
+    partes = []
+    for i, a in enumerate(archivos):
+        df = leer_con_cabecera(a, 'Nº mov.')[0]
+        faltan = [c for c in COLUMNAS_BC if c not in df.columns]
+        if faltan:
+            raise ErrorDeCarga(f'{_nombre(a)}: al export de Business Central le faltan las columnas {faltan}. '
+                               'Revisa que es el informe de movimientos de contabilidad y que no se ha cambiado su diseño.')
+        partes.append(df.assign(Archivo=i))
     if not partes:
         return pd.DataFrame()
     bc = pd.concat(partes, ignore_index=True)
+    # Qué meses y fincas trae cada archivo, antes de quitar repetidos (para avisar de meses cargados dos veces)
+    cobertura = pd.DataFrame({'mes': pd.to_datetime(bc['Fecha registro']).dt.to_period('M'),
+                              'hotel': bc['Cód. dimensión 1 (FINCA)'], 'archivo': bc['Archivo']}).drop_duplicates()
+    bc = bc.drop_duplicates(subset='Nº mov.', keep='last').reset_index(drop=True)
     cuenta = bc['Nº cuenta'].astype(str)
     signo = cuenta.str.startswith('7').map({True: -1, False: 1})  # BC: ingresos en negativo (haber)
     imp = pd.to_numeric(bc['Importe']) * signo
     iva = pd.to_numeric(bc['Importe IVA']) * signo
-    return pd.DataFrame({
+    out = pd.DataFrame({
         'Fecha de registro': pd.to_datetime(bc['Fecha registro']),
         'Fecha de emisión del documento': pd.to_datetime(bc['Fecha documento']),
         'Nº documento': bc['Nº documento'],
@@ -99,13 +121,16 @@ def normalizar_bc(archivos):
         'Finca': bc['Cód. dimensión 1 (FINCA)'],
         'Ceco': bc['Cód. dimensión 2 (CECO)'],
         'EFE código': bc['Cód. EFE'],
+        'Archivo': bc['Archivo'],
     })
+    out.attrs['cobertura'] = cobertura
+    return out
 
 
 def normalizar_presupuesto(archivos, cfg):
     nombre2id = dict(zip(cfg['hoteles']['Hotel'], cfg['hoteles']['Id hotel']))
     filas = []
-    for archivo in archivos:
+    for i, archivo in enumerate(archivos):
         anio = re.search(r'(20\d\d)', _nombre(archivo))
         if anio is None:
             raise ErrorDeCarga(f'{_nombre(archivo)}: el nombre del archivo debe llevar el año (Presupuesto_2026.xlsx).')
@@ -122,7 +147,7 @@ def normalizar_presupuesto(archivos, cfg):
                     filas.append({
                         'Fecha': pd.Timestamp(anio, MESES_CORTOS[str(col).lower()[:3]], 1),
                         'Id hotel': nombre2id[hoja], 'Línea': r['Línea'], 'Tipo': r['Bloque'],
-                        'Presupuesto': int(r[col]),
+                        'Presupuesto': int(r[col]), 'Archivo': i,
                     })
     return pd.DataFrame(filas)
 
@@ -161,6 +186,8 @@ def normalizar_reservas(archivos, cfg):
             raise ErrorDeCarga(f'{_nombre(archivo)}: hoteles desconocidos {sorted(hoteles)}.')
         partes.append(df)
     df = pd.concat(partes, ignore_index=True)
+    # La misma reserva en varios archivos: manda la del más reciente (el último de la lista)
+    df = df.drop_duplicates(subset='Nº reserva', keep='last').reset_index(drop=True)
     texto = lambda col: df[col].fillna('').astype(str).str.strip() if col in df.columns else pd.Series('', index=df.index)
     origen, detalle, agencia = texto('Origen'), texto('Detalle origen'), texto('Agencia')
     clave = [_canal_clave(o, d, a) for o, d, a in zip(origen, detalle, agencia)]
