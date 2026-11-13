@@ -1,0 +1,19 @@
+name: Diagnóstico (comprobar la web)
+# Solo lee: abre la web y el registro de arranque. No publica ni cambia nada.
+on:
+  push:
+    branches: [diagnostico]
+jobs:
+  comprobar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comprobar la web
+        env:
+          PERFIL: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        run: |
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 https://cuadralo-demo-543f7.azurewebsites.net/entrar/)
+            echo "intento $i: /entrar/ -> $c"; [ "$c" = "200" ] && break; sleep 30
+          done
+          echo "estatico Chart.js -> $(curl -s -o /dev/null -w '%{http_code}' https://cuadralo-demo-543f7.azurewebsites.net/static/portal/vendor/chart.umd.min.js)"
+          curl -s https://cuadralo-demo-543f7.azurewebsites.net/entrar/ | grep -o '<link[^>]*css[^>]*>' | head -3
