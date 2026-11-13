@@ -43,7 +43,7 @@ class Perfil(models.Model):
     DIRECTOR_HOTEL = 'director_hotel'
     ROLES = [
         (DIRECCION, 'Dirección (ve todo el grupo)'),
-        (CONTABILIDAD, 'Contabilidad (ve todo y sube archivos)'),
+        (CONTABILIDAD, 'Contabilidad o gestión (ve todo, sube archivos y confirma)'),
         (DIRECTOR_HOTEL, 'Director de hotel (solo su hotel)'),
     ]
     usuario = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='perfil')

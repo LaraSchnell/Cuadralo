@@ -78,6 +78,8 @@ Todo está en el grupo de recursos **`cuadralo-rg`**, región Spain Central. Los
 | 1.5 | En **cada página**, se mira su perfil: empresa, rol y hotel | [`portal/acceso.py`](../portal/acceso.py): busca "def perfil_requerido". Pone `request.empresa` y `request.perfil` | SQL: tabla `portal_perfil` |
 | 1.6 | Se apunta qué página pide (registro de actividad) | [`portal/acceso.py`](../portal/acceso.py): busca "def _registrar_actividad" | SQL: `portal_registroactividad` · `/equipo/` → Actividad de usuarios |
 
+**Roles:** Dirección (ve todo el grupo) · Contabilidad o gestión (ve todo, sube archivos y confirma) · Director de hotel (solo su hotel; no ve el historial de cargas). Si un hotel no tiene contable, a su director se le da el rol **Contabilidad o gestión**.
+
 **Quién da de alta a los usuarios:** vosotros, en `/equipo/` (el panel de administración de Django). Se crea el usuario y su **Perfil** (empresa + rol: dirección, contabilidad o director de hotel + hotel). Ver la tabla `Perfil` en [`portal/models.py`](../portal/models.py): busca "class Perfil".
 
 **Regla de oro del aislamiento:** la empresa sale SIEMPRE del perfil, nunca de la dirección de la página. Por eso un usuario no puede cambiar la URL para ver otra empresa.
@@ -89,7 +91,7 @@ Todo está en el grupo de recursos **`cuadralo-rg`**, región Spain Central. Los
 | Paso | Qué pasa | GitHub | Azure |
 |---|---|---|---|
 | 2.1 | El usuario de contabilidad abre "Subir archivos" | [`web/urls.py`](../web/urls.py): "subir/" → función `subir` | — |
-| 2.2 | Ve la página: elige tipo y archivos | [`portal/templates/portal/subir.html`](../portal/templates/portal/subir.html) | — |
+| 2.2 | Ve la página: elige tipo y archivos. **Informe del operador** = resumen mensual por hotel (room nights, ingresos por departamento, ratios). **Reservas del PMS** = el detalle reserva a reserva de Mews (canal, país, fechas, noches), sin datos personales | [`portal/templates/portal/subir.html`](../portal/templates/portal/subir.html) | — |
 | 2.3 | Pulsa Subir: la función comprueba permiso, tipo y que sea .xlsx | [`portal/views.py`](../portal/views.py): busca "def subir" | — |
 | 2.4 | Calcula la **huella** del archivo y mira si ya existe uno idéntico | [`portal/procesar.py`](../portal/procesar.py): "def huella_de" y "def carga_identica" | — |
 | 2.5 | Si es idéntico: no lo sube y avisa "no se ha subido: es idéntico a…" | [`portal/views.py`](../portal/views.py): dentro de `subir`, "messages.warning" | — |
@@ -98,7 +100,9 @@ Todo está en el grupo de recursos **`cuadralo-rg`**, región Spain Central. Los
 | 2.8 | Lanza el procesado en segundo plano y responde al momento | [`portal/segundo_plano.py`](../portal/segundo_plano.py): "def lanzar" | — |
 | 2.9 | Redirige al historial de cargas, que se refresca cada 5 s mientras procesa | [`portal/templates/portal/cargas.html`](../portal/templates/portal/cargas.html): busca "location.reload" · vista "def cargas" | — |
 
-**Por qué el Blob no pisa archivos:** en [`web/settings.py`](../web/settings.py) busca "overwrite_files": está en `False`. Si llega otro archivo con el mismo nombre, se guarda con un sufijo.
+**"Sustituye" y "no pisa" son dos cosas distintas:**
+- **En el informe sí sustituye:** si subes un archivo con el mismo nombre y tipo, el anterior pasa a "Sustituida" y sus datos dejan de contar.
+- **En el Blob no se borra nada:** los dos archivos quedan guardados (el nuevo con un sufijo en el nombre), para poder auditar. Lo controla "overwrite_files" en [`web/settings.py`](../web/settings.py), que está en `False`.
 
 ---
 
@@ -113,13 +117,13 @@ Todo empieza en [`portal/segundo_plano.py`](../portal/segundo_plano.py) → "def
 | 3.3 | Lee todos los archivos vigentes (estado Procesando o Procesada) desde el Blob | "def _abrir" | Los archivos en memoria |
 | 3.4 | **Normaliza** cada tipo al modelo común | [`cuadralo/normalizar.py`](../cuadralo/normalizar.py): "def normalizar_bc", "def normalizar_operador", "def normalizar_presupuesto", "def normalizar_reservas" | Tablas comunes (lección 3) |
 | 3.5 | Avisa de meses repetidos y evita contar dos veces | [`portal/procesar.py`](../portal/procesar.py): "def _repetidos" | Campo `aviso` de la carga |
-| 3.6 | Asigna a cada apunte su línea del informe con el plan de cuentas, y valida fincas | [`cuadralo/calculos.py`](../cuadralo/calculos.py): "def asignar_lineas" | Si una cuenta no tiene línea: error claro |
+| 3.6 | Asigna a cada apunte su línea del informe con el plan de cuentas, y valida fincas. Una cuenta nueva ya no llega aquí: la detecta el paso 3.2 y se pregunta en "Revisar y confirmar" | [`cuadralo/calculos.py`](../cuadralo/calculos.py): "def asignar_lineas" | Si una cuenta no tiene línea: error claro |
 | 3.7 | **Carga en Azure SQL**: borra lo anterior de la empresa e inserta todo por lotes de 1.000 | [`portal/procesar.py`](../portal/procesar.py): busca "bulk_create" y "transaction.atomic" | SQL: `portal_movimientocontable`, `portal_filaoperador`, `portal_filapresupuesto`, `portal_reserva` |
 | 3.8 | **Precálculo**: calcula todo el informe y lo guarda | [`portal/precalculo.py`](../portal/precalculo.py): "def guardar". Los cálculos los hace la clase `Datos` de [`cuadralo/informe.py`](../cuadralo/informe.py) | SQL: `portal_resultadoempresa` (tablas del informe) y `portal_resultadodesviacion` |
 | 3.9 | Marca las cargas como "Procesada" **al final**, con el informe ya guardado | [`portal/procesar.py`](../portal/procesar.py): busca "Las cargas pasan a «Procesada» al final" | `portal_carga.estado = ok` |
 | 3.10 | Si algo falla: la carga queda en "Error" con el motivo, y se avisa a n8n | [`portal/segundo_plano.py`](../portal/segundo_plano.py): "except Exception" y "def avisar" | `portal_carga.mensaje` |
 
-**Importante para entender el rendimiento:** en el paso 3.7 hoy se **rehace todo el histórico de la empresa** en cada subida. Con el Grupo Demo tarda segundos, pero con un hotel muy grande habrá que procesar solo los meses afectados (pendiente).
+**Importante para entender el rendimiento:** en los pasos 3.3 a 3.8 hoy se **vuelve a leer, normalizar y cargar todo el histórico de la empresa** en cada subida (las reservas ya son incrementales). Con el Grupo Demo tarda segundos, pero con un hotel muy grande habrá que procesar solo los meses afectados (pendiente).
 
 **Para verlo en Azure mientras pasa:** App Service → *Supervisión* → **Secuencia de registro (Log stream)**. Ahí salen los mensajes de la web en directo, también los errores.
 
@@ -161,7 +165,7 @@ Todo empieza en [`portal/segundo_plano.py`](../portal/segundo_plano.py) → "def
 | Paso | Qué pasa | GitHub |
 |---|---|---|
 | 6.1 | Clic en una barra o una fila: el navegador pide `/detalle/` con lo que se ha pinchado | [`informe.js`](../portal/static/portal/informe.js): busca "detalle" |
-| 6.2 | La vista busca en SQL las facturas o reservas de esa cifra, **filtradas por empresa y por los hoteles que puede ver**, máximo 300 filas | [`portal/views.py`](../portal/views.py): "def detalle" y "MAX_FILAS_DETALLE" |
+| 6.2 | La vista busca en SQL las facturas o reservas de esa cifra con **todos los filtros de la página**: empresa, hoteles que puede ver, meses elegidos, ceco, proveedor, canal y la línea o barra pinchada. Enseña las 300 de mayor importe; el resto, en Excel | [`portal/views.py`](../portal/views.py): "def detalle" y "MAX_FILAS_DETALLE" |
 | 6.3 | La tabla de abajo enseña esas filas | [`_detalle.html`](../portal/templates/portal/_detalle.html) |
 | 6.4 | Página "Apuntes y proveedores": filtra y pagina en la base de datos | [`portal/views.py`](../portal/views.py): "def apuntes" · [`apuntes.html`](../portal/templates/portal/apuntes.html) |
 | 6.5 | Exportar a Excel | [`portal/views.py`](../portal/views.py): "def exportar" y "def _excel" |
@@ -231,6 +235,25 @@ SELECT tipo, clase, origen, destino, fuente, confianza, aprobado_en FROM portal_
 ```
 
 ---
+
+### 10.1 Qué guarda cada tabla
+
+| Tabla | Qué es | Cuándo se llena |
+|---|---|---|
+| `portal_empresa`, `portal_perfil`, `auth_user` | Empresas, usuarios y su rol | Alta de clientes |
+| `portal_carga` | Cada archivo subido y su estado | Al subir |
+| `portal_movimientocontable` | Apuntes de Business Central normalizados | Al procesar |
+| `portal_filaoperador` | El informe del operador ya en filas (hotel, mes, concepto, medida, valor) | Al procesar |
+| `portal_filapresupuesto` | El presupuesto en filas (hotel, mes, línea, importe) | Al procesar |
+| `portal_reserva` | Reservas de Mews, una fila por reserva | Al procesar reservas |
+| `portal_resultadoempresa` | **El informe ya calculado**: una fila por tabla del informe (cuenta de resultados, KPIs, cuadre…). Se guarda comprimido en formato de Python, por eso se ve "raro" en SQL: no está pensado para leerlo a mano, sino para que la web lo abra en menos de un segundo | Al final de cada procesado |
+| `portal_resultadodesviacion` | Desviaciones ya explicadas por hotel y mes (mismo formato comprimido) | Al procesar (últimos 3 meses) y la primera vez que se pide otro mes |
+| `portal_propuesta`, `portal_mapeoaprobado` | Preguntas de "Revisar y confirmar" y lo confirmado | Solo cuando llega algo desconocido |
+| `portal_registroia` | Llamadas a la IA | Solo con Azure OpenAI conectado |
+| `portal_interesmodulo` | Clics en "Me interesa" de los módulos futuros (reputación, personas, operaciones) | Cuando un usuario los pulsa |
+| `portal_registroacceso`, `portal_registroactividad` | Quién entra y qué ve o exporta | Siempre |
+
+Todas las tablas de datos de clientes llevan la columna `empresa_id`.
 
 ## 11. Glosario y equivalencias
 

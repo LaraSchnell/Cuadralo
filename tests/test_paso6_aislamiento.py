@@ -60,9 +60,10 @@ def test_director_de_hotel_no_ve_otro_hotel_en_ninguna_url(client, demo):  # noq
     user = get_user_model().objects.create_user('dir.mar', password='clave-mar-12345')
     Perfil.objects.create(usuario=user, empresa=grupo, rol=Perfil.DIRECTOR_HOTEL, hotel='MAR')
     _entrar(client, 'dir.mar', 'clave-mar-12345')
+    assert client.get('/cargas/').status_code == 403   # el historial enseña archivos de todos los hoteles
     for url in _urls('meses=2026-09') + _urls('meses=2026-08&meses=2026-09'):
         r = client.get(url)
-        assert r.status_code in (200, 404), url
+        assert r.status_code in (200, 403, 404), url
         if r.status_code != 200:
             continue
         t = _texto(r)

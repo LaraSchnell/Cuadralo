@@ -493,6 +493,9 @@ def subir(request):
 
 @perfil_requerido
 def cargas(request):
+    # El historial enseña archivos de todos los hoteles: el director de hotel no lo ve
+    if request.perfil.rol == Perfil.DIRECTOR_HOTEL:
+        raise PermissionDenied('El historial de cargas es solo para dirección y contabilidad.')
     lista = (Carga.objects.filter(empresa=request.empresa).exclude(estado='eliminada')
              .select_related('usuario')[:200])
     return render(request, 'portal/cargas.html', {

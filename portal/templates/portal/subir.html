@@ -2,7 +2,7 @@
 {% block titulo %}Subir archivos{% endblock %}
 {% block contenido %}
 <h1>Subir archivos</h1>
-<p class="subtitulo">Los archivos se guardan en la carpeta de {{ empresa.nombre }} y se procesan en segundo plano: no hace falta esperar.</p>
+<p class="subtitulo">Elige qué tipo de archivo es y súbelo. Puedes seguir trabajando mientras se procesa.</p>
 <div class="tarjeta">
   <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
@@ -13,7 +13,7 @@
     </select>
     <label for="archivos">Archivos Excel (.xlsx)</label>
     <input id="archivos" type="file" name="archivos" accept=".xlsx" multiple required>
-    <p class="nota">Si subes un archivo con el mismo nombre que uno anterior, sustituye al anterior. Un archivo idéntico a otro ya subido no se vuelve a cargar, y si dos archivos traen el mismo mes y hotel te avisamos en el historial de cargas.</p>
+    <p class="nota">Si algo no cuadra (un archivo repetido o algo que no conocemos), te avisamos en el historial de cargas.</p>
     <button class="principal" type="submit">Subir y procesar</button>
   </form>
 </div>
