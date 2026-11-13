@@ -1,5 +1,5 @@
 name: Diagnóstico (comprobar la web)
-# Solo lee: abre la web y el registro de arranque. No publica ni cambia nada.
+# Solo lee: entra en la web desde el servidor de Azure y enseña el registro de errores. No publica ni cambia nada.
 on:
   push:
     branches: [diagnostico]
@@ -7,14 +7,16 @@ jobs:
   comprobar:
     runs-on: ubuntu-latest
     steps:
-      - name: Comprobar la web
+      - uses: actions/checkout@v4
+      - name: Comprobar la web y leer errores
         env:
           PERFIL: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
         run: |
-          set +e
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 90 https://cuadralo-demo-543f7.azurewebsites.net/entrar/)
-            echo "intento $i: /entrar/ -> $c"; [ "$c" = "200" ] && break; sleep 30
-          done
-          echo "estatico Chart.js -> $(curl -s -o /dev/null -w '%{http_code}' https://cuadralo-demo-543f7.azurewebsites.net/static/portal/vendor/chart.umd.min.js)"
-          curl -s https://cuadralo-demo-543f7.azurewebsites.net/entrar/ | grep -o '<link[^>]*css[^>]*>' | head -3
+          USUARIO=$(echo "$PERFIL" | grep -o 'userName="[^"]*"' | head -1 | cut -d'"' -f2)
+          CLAVE=$(echo "$PERFIL" | grep -o 'userPWD="[^"]*"' | head -1 | cut -d'"' -f2)
+          SCM=$(echo "$PERFIL" | grep -o 'publishUrl="[^"]*"' | head -1 | cut -d'"' -f2 | cut -d: -f1)
+          echo "::add-mask::$CLAVE"
+          curl -s -u "$USUARIO:$CLAVE" -X PUT -H 'If-Match: *' --data-binary @.github/diagnostico/diag2.sh "https://$SCM/api/vfs/data/diag2.sh"
+          curl -s --max-time 900 -u "$USUARIO:$CLAVE" -X POST "https://$SCM/api/command" -H 'Content-Type: application/json' \
+               -d '{"command":"bash /home/data/diag2.sh","dir":"/home"}' \
+            | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["Output"]);print(d["Error"])'
