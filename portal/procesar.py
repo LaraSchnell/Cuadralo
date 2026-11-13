@@ -6,7 +6,7 @@ from decimal import Decimal
 import pandas as pd
 from django.db import transaction
 
-from cuadralo import calculos, informe, normalizar
+from cuadralo import calculos, informe, normalizar, revision, sugerencias
 from . import precalculo
 from .models import (Carga, FilaOperador, FilaPresupuesto, MovimientoContable, Reserva, ResultadoDesviacion,
                      ResultadoEmpresa)
@@ -23,8 +23,39 @@ def _abrir(field_file, nombre):
 
 
 def leer_configuracion(empresa):
+    """Excel de configuración de la empresa + lo confirmado en la web (página Revisar y confirmar)."""
     with empresa.configuracion.open('rb') as f:
-        return pd.read_excel(io.BytesIO(f.read()), sheet_name=None)
+        cfg = pd.read_excel(io.BytesIO(f.read()), sheet_name=None)
+    from .models import MapeoAprobado
+    mapeos = MapeoAprobado.objects.filter(empresa=empresa).values_list('tipo', 'clase', 'origen', 'destino')
+    return revision.aplicar_mapeos(cfg, list(mapeos))
+
+
+def revisar_cargas_nuevas(empresa, cfg):
+    """Mira los archivos nuevos y, si traen algo desconocido, crea las propuestas y los deja «Por confirmar».
+
+    Devuelve las cargas que se quedan esperando confirmación (no se procesan hasta que alguien confirme).
+    """
+    from . import segundo_plano
+    from .models import Propuesta, RegistroIA
+    en_revision = []
+    for c in empresa.cargas.filter(estado='pendiente').order_by('creada', 'id'):
+        preguntas = revision.detectar(c.tipo, c.nombre_original, _abrir(c.archivo, c.nombre_original), cfg)
+        if not preguntas:
+            continue
+        sugerencias.sugerir(preguntas, registrar_ia=lambda **kw: RegistroIA.objects.create(empresa=empresa, **kw))
+        Propuesta.objects.filter(carga=c, estado='pendiente').delete()
+        Propuesta.objects.bulk_create([Propuesta(
+            empresa=empresa, carga=c, tipo=p['tipo'], clase=p['clase'], clave=p['clave'][:300], modo=p['modo'],
+            texto=p['texto'][:500], opciones=p['opciones'], muestras=p['muestras'], sugerencia=p['sugerencia'][:300],
+            confianza=p['confianza'], fuente=p['fuente'], motivo=p['motivo'][:300]) for p in preguntas])
+        c.estado = 'revisar'
+        c.mensaje = f'Hay {len(preguntas)} cosa(s) que este archivo trae y Cuádralo no conoce. Revísalas y confírmalas.'
+        c.save(update_fields=['estado', 'mensaje'])
+        en_revision.append(c)
+    if en_revision:
+        segundo_plano.avisar(empresa, en_revision, en_revision[0].mensaje, evento='revision_pendiente')
+    return en_revision
 
 
 def _d(valor, decimales=2):
@@ -88,12 +119,13 @@ def procesar_empresa(empresa):
     Normalmente se llama desde el procesado en segundo plano (portal/segundo_plano.py), nunca mientras la web espera.
     """
     cfg = leer_configuracion(empresa)
+    revisar_cargas_nuevas(empresa, cfg)
     vigentes = list(empresa.cargas.filter(estado__in=['pendiente', 'ok']).order_by('creada', 'id'))
     por_tipo = {t: [c for c in vigentes if c.tipo == t] for t, _ in Carga.TIPOS}
     try:
         cargas_bc, cargas_op, cargas_pres = (por_tipo[Carga.BUSINESS_CENTRAL], por_tipo[Carga.OPERADOR],
                                              por_tipo[Carga.PRESUPUESTO])
-        mov = normalizar.normalizar_bc([_abrir(c.archivo, c.nombre_original) for c in cargas_bc])
+        mov = normalizar.normalizar_bc([_abrir(c.archivo, c.nombre_original) for c in cargas_bc], cfg)
         pms = normalizar.normalizar_operador([_abrir(c.archivo, c.nombre_original) for c in cargas_op], cfg)
         pres = normalizar.normalizar_presupuesto([_abrir(c.archivo, c.nombre_original) for c in cargas_pres], cfg)
         # Meses repetidos entre archivos del mismo tipo: aviso y, en operador y presupuesto, manda el más reciente
@@ -222,7 +254,7 @@ def huella_de(archivo):
 
 def carga_identica(empresa, huella):
     """Carga vigente de la empresa con exactamente el mismo contenido, o None."""
-    return (Carga.objects.filter(empresa=empresa, huella=huella, estado__in=['pendiente', 'ok'])
+    return (Carga.objects.filter(empresa=empresa, huella=huella, estado__in=['pendiente', 'ok', 'revisar'])
             .select_related('usuario').first())
 
 
@@ -242,6 +274,7 @@ def eliminar_carga(carga, usuario):
     if carga.tipo == Carga.RESERVAS:
         # Las reservas se cargan de forma incremental: se rehacen enteras con los archivos que quedan
         Reserva.objects.filter(empresa=carga.empresa).delete()
+    carga.propuestas.filter(estado='pendiente').update(estado='descartada')
     if carga.archivo:
         carga.archivo.delete(save=False)
     carga.estado, carga.eliminada_por, carga.eliminada_en = 'eliminada', usuario, timezone.now()

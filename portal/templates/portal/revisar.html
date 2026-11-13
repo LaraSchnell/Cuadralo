@@ -1,0 +1,39 @@
+{% extends 'portal/base.html' %}
+{% block titulo %}Revisar y confirmar{% endblock %}
+{% block contenido %}
+<h1>Revisar y confirmar</h1>
+<p class="subtitulo">Tus archivos traen cosas que Cuádralo todavía no conoce. Te proponemos la respuesta más probable: revísala, cámbiala si hace falta y confirma. Lo que confirmes se guarda y no se vuelve a preguntar.</p>
+{% if not grupos %}
+  <div class="tarjeta">No hay nada pendiente de confirmar. <a href="{% url 'cargas' %}">Volver al historial de cargas</a></div>
+{% else %}
+<form method="post">{% csrf_token %}
+  {% for carga, preguntas in grupos %}
+  <div class="tarjeta revision">
+    <h2>{{ carga.nombre_original }}</h2>
+    <p class="nota">{{ carga.get_tipo_display }} · subido por {{ carga.usuario.username|default:"—" }} el {{ carga.creada|date:"d/m/Y H:i" }}</p>
+    {% for p in preguntas %}
+    <div class="pregunta">
+      <div>
+        <strong>{{ p.texto }}</strong>
+        {% if p.muestras %}<div class="ejemplos">Ejemplos: {{ p.muestras|join:" · " }}</div>{% endif %}
+      </div>
+      <div>
+        <select name="p_{{ p.id }}" required>
+          <option value="">— Elige —</option>
+          {% for valor, etiqueta in p.opciones %}
+          <option value="{{ valor }}"{% if valor == p.sugerencia %} selected{% endif %}>{{ etiqueta }}</option>
+          {% endfor %}
+        </select>
+        {% if p.sugerencia %}
+        <div class="sugerencia {{ p.fuente }}">{% if p.fuente == 'ia' %}Propuesto por la IA{% else %}Propuesto por parecido de nombres{% endif %}{% if p.confianza is not None %} · {% widthratio p.confianza 1 100 %} % de confianza{% endif %}{% if p.motivo %} · {{ p.motivo }}{% endif %}</div>
+        {% else %}<div class="sugerencia">Sin propuesta: elige tú la opción.</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  <button type="submit" class="boton">Confirmar y procesar</button>
+  <p class="nota">Si algo no corresponde a ninguna opción, elimina el archivo en el historial de cargas y avisa al equipo de Cuádralo.</p>
+</form>
+{% endif %}
+{% endblock %}

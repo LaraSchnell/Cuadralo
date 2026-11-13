@@ -26,6 +26,10 @@ class Empresa(models.Model):
         default=False, help_text='Hay cargas nuevas o eliminadas sin procesar. El procesado en segundo plano lo pone a falso.')
 
     @property
+    def por_confirmar(self):
+        return self.propuestas.filter(estado='pendiente').count()
+
+    @property
     def procesando(self):
         return self.necesita_procesar or self.cargas.filter(estado='pendiente').exists()
 
@@ -67,7 +71,7 @@ class Carga(models.Model):
         (RESERVAS, 'Reservas del PMS (Mews)'),
     ]
     ESTADOS = [('pendiente', 'Procesando…'), ('ok', 'Procesada'), ('error', 'Error'), ('sustituida', 'Sustituida'),
-               ('eliminada', 'Eliminada')]
+               ('eliminada', 'Eliminada'), ('revisar', 'Por confirmar')]
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='cargas')
     usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     tipo = models.CharField(max_length=20, choices=TIPOS)
@@ -89,6 +93,67 @@ class Carga(models.Model):
 
     class Meta:
         ordering = ['-creada']
+
+
+class Propuesta(models.Model):
+    """Algo que un archivo trae y la configuración no conoce. Cuádralo propone y una persona confirma."""
+    ESTADOS = [('pendiente', 'Pendiente'), ('aprobada', 'Confirmada'), ('descartada', 'Descartada')]
+    FUENTES = [('ia', 'IA'), ('parecido', 'Parecido de nombres'), ('', 'Sin sugerencia')]
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='propuestas')
+    carga = models.ForeignKey(Carga, on_delete=models.CASCADE, related_name='propuestas')
+    tipo = models.CharField(max_length=20)
+    clase = models.CharField(max_length=12)
+    clave = models.CharField(max_length=300, help_text='Lo desconocido (o la columna que falta, si modo = falta).')
+    modo = models.CharField(max_length=8, default='nueva')
+    texto = models.CharField(max_length=500)
+    opciones = models.JSONField(default=list)
+    muestras = models.JSONField(default=list)
+    sugerencia = models.CharField(max_length=300, blank=True)
+    confianza = models.FloatField(null=True, blank=True)
+    fuente = models.CharField(max_length=10, choices=FUENTES, blank=True)
+    motivo = models.CharField(max_length=300, blank=True)
+    estado = models.CharField(max_length=12, choices=ESTADOS, default='pendiente')
+    creada = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['carga_id', 'clase', 'id']
+        indexes = [models.Index(fields=['empresa', 'estado'])]
+
+
+class MapeoAprobado(models.Model):
+    """Lo que una persona confirmó: se añade a la configuración de la empresa (cuadralo/revision.aplicar_mapeos)."""
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='mapeos')
+    tipo = models.CharField(max_length=20)
+    clase = models.CharField(max_length=12)
+    origen = models.CharField(max_length=300)
+    destino = models.CharField(max_length=300)
+    sugerencia = models.CharField(max_length=300, blank=True)
+    fuente = models.CharField(max_length=10, blank=True)
+    confianza = models.FloatField(null=True, blank=True)
+    aprobado_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    aprobado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [('empresa', 'tipo', 'clase', 'origen')]
+        verbose_name = 'mapeo confirmado'
+        verbose_name_plural = 'mapeos confirmados'
+
+
+class RegistroIA(models.Model):
+    """Cada llamada a la IA: para qué, con qué modelo y servidor, y la huella de lo enviado (nunca el contenido)."""
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
+    fecha = models.DateTimeField(auto_now_add=True)
+    tarea = models.CharField(max_length=40)
+    modelo = models.CharField(max_length=100)
+    servidor = models.CharField(max_length=200)
+    huella_entrada = models.CharField(max_length=64)
+    n_preguntas = models.IntegerField(default=0)
+    ok = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-fecha']
+        verbose_name = 'llamada a la IA'
+        verbose_name_plural = 'llamadas a la IA'
 
 
 class InteresModulo(models.Model):

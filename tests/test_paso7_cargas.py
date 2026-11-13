@@ -66,14 +66,16 @@ def test_no_se_puede_eliminar_una_carga_de_otra_empresa_ni_siendo_director(clien
     assert ajena.estado == 'ok'
 
 
-def test_business_central_sin_columnas_avisa_cuales_faltan(client, demo, tmp_path):  # noqa: F811
+def test_business_central_sin_columnas_pregunta_cual_es(client, demo, tmp_path):  # noqa: F811
     wb = openpyxl.load_workbook(BC_OCT)
     wb.active.delete_cols(10)   # «Importe»
     malo = tmp_path / 'BC_sin_importe.xlsx'
     wb.save(malo)
     _entrar(client, 'contable.demo', 'clave-contable-123')
     html = _subir(client, 'business_central', malo)
-    assert 'le faltan las columnas' in html and 'Importe' in html
+    from portal.models import Propuesta
+    assert 'Por confirmar' in html
+    assert Propuesta.objects.filter(clase='columna', clave='Importe', modo='falta').exists()
 
 
 def test_tipo_equivocado_da_un_error_claro(client, demo):  # noqa: F811

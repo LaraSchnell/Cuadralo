@@ -31,6 +31,12 @@ Estado (13 nov 2026): cumplidos 1, 2, 3, 4 y 5. Precálculo en portal/precalculo
 - RegistroActividad: cada página, detalle y exportación que pide un usuario (sin cifras). Se ve en /equipo/.
 - Las pruebas procesan en el momento (conftest.py pone PROCESADO_SEGUNDO_PLANO = False).
 
+## Revisar y confirmar (desde el 13 nov 2026)
+- Antes de procesar un archivo nuevo, cuadralo/revision.py busca lo que la configuración no conoce: columnas renombradas o nuevas (operador), columnas que faltan (Business Central, reservas), hoteles, fincas, cuentas contables, canales, hojas y año del presupuesto.
+- cuadralo/sugerencias.py propone una respuesta: parecido de nombres y, si están las variables AZURE_OPENAI_*, Azure OpenAI (cuadralo/ia.py). A la IA solo van textos de la pregunta, opciones y ejemplos que no son cifras; cada llamada queda en RegistroIA con la huella de lo enviado.
+- El archivo queda «Por confirmar» (Carga.estado = 'revisar') con sus Propuesta. Lo confirma un usuario de contabilidad del cliente en /revisar/ y se guarda en MapeoAprobado (quién, cuándo, qué se propuso). leer_configuracion() lo añade a la configuración, así que no se vuelve a preguntar.
+- La IA nunca decide sola ni calcula: solo puede elegir una de las opciones válidas.
+
 ## Aislamiento entre empresas (lo más importante del producto)
 - La empresa sale SIEMPRE del perfil del usuario (portal/acceso.py), nunca de la URL. Toda consulta a tablas de clientes filtra por `empresa=request.empresa`.
 - Los hoteles visibles salen del perfil (director de hotel = solo el suyo); lo que llega por la URL se valida contra esa lista.

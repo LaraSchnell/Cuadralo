@@ -279,3 +279,16 @@ table.todo tr.oculta { display: table-row; }
 .aviso-carga { margin-top: 6px; font-size: 12px; color: #92400E; background: #FEF3C7; border-radius: 6px; padding: 6px 8px; text-align: left; white-space: normal; }
 .error-carga { margin-top: 6px; font-size: 12px; color: #991B1B; white-space: normal; text-align: left; }
 .boton-eliminar { background: none; border: 1px solid #FCA5A5; color: #B91C1C; border-radius: 6px; padding: 3px 8px; font-size: 12px; cursor: pointer; font-family: inherit; }
+
+/* Revisar y confirmar */
+.estado.revisar { background: #FEF3C7; color: #92400E; }
+.globo { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 9px; background: #F59E0B; color: #fff; font-size: 11px; text-align: center; margin-left: 4px; }
+.revision { margin-bottom: 16px; }
+.revision h2 { font-size: 15px; margin: 0 0 4px; }
+.pregunta { display: grid; grid-template-columns: 1fr minmax(220px, 340px); gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E5E7EB; align-items: center; }
+.pregunta .ejemplos { font-size: 12px; color: #6B7280; margin-top: 2px; }
+.pregunta select { width: 100%; padding: 6px; border-radius: 6px; border: 1px solid #D1D5DB; font-family: inherit; }
+.sugerencia { font-size: 12px; margin-top: 4px; }
+.sugerencia.ia { color: #6D28D9; }
+.sugerencia.parecido { color: #1D4ED8; }
+@media (max-width: 700px) { .pregunta { grid-template-columns: 1fr; } }

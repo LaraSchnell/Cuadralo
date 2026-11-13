@@ -21,7 +21,8 @@ from cuadralo import calculos, informe
 from cuadralo import exportar as exportar_xlsx
 from .acceso import perfil_requerido
 from . import precalculo, procesar, segundo_plano
-from .models import Carga, InteresModulo, MovimientoContable, Perfil, Reserva, ResultadoEmpresa
+from .models import (Carga, InteresModulo, MapeoAprobado, MovimientoContable, Perfil, Propuesta, Reserva,
+                     ResultadoEmpresa)
 from .procesar import (carga_identica, datos_empresa, huella_de, leer_configuracion, presupuesto_empresa,
                        registrar_carga, reservas_empresa)
 
@@ -466,7 +467,48 @@ def cargas(request):
              .select_related('usuario')[:200])
     return render(request, 'portal/cargas.html', {
         'empresa': request.empresa, 'perfil': request.perfil, 'cargas': lista,
-        'procesando': request.empresa.procesando})
+        'procesando': request.empresa.procesando, 'por_confirmar': request.empresa.por_confirmar})
+
+
+@perfil_requerido
+def revisar(request):
+    """Lo que los archivos traen y la configuración no conoce: Cuádralo propone y el usuario confirma."""
+    if not request.perfil.puede_subir:
+        raise PermissionDenied('Tu usuario no puede confirmar la configuración.')
+    pendientes = list(Propuesta.objects.filter(empresa=request.empresa, estado='pendiente').select_related('carga'))
+    if request.method == 'POST':
+        elegidas, faltan = {}, []
+        for p in pendientes:
+            valor = request.POST.get(f'p_{p.id}', '')
+            if valor not in {v for v, _ in p.opciones}:
+                faltan.append(p)
+            else:
+                elegidas[p.id] = valor
+        if faltan:
+            messages.error(request, f'Falta elegir una opción en {len(faltan)} pregunta(s).')
+        else:
+            cargas = set()
+            for p in pendientes:
+                valor = elegidas[p.id]
+                origen, destino = (valor, p.clave) if p.modo == 'falta' else (p.clave, valor)
+                MapeoAprobado.objects.update_or_create(
+                    empresa=request.empresa, tipo=p.tipo, clase=p.clase, origen=origen,
+                    defaults={'destino': destino, 'sugerencia': p.sugerencia, 'fuente': p.fuente,
+                              'confianza': p.confianza, 'aprobado_por': request.user})
+                p.estado = 'aprobada'
+                p.save(update_fields=['estado'])
+                cargas.add(p.carga_id)
+            Carga.objects.filter(id__in=cargas, estado='revisar').update(estado='pendiente', mensaje='')
+            segundo_plano.lanzar(request.empresa.id)
+            messages.success(request, f'{len(pendientes)} respuesta(s) guardada(s). Los archivos se están procesando '
+                                      'y la próxima vez no se volverá a preguntar.')
+            return redirect('cargas')
+    grupos = {}
+    for p in pendientes:
+        grupos.setdefault(p.carga, []).append(p)
+    return render(request, 'portal/revisar.html', {
+        'empresa': request.empresa, 'perfil': request.perfil, 'grupos': grupos.items(),
+        'elegidas': request.POST if request.method == 'POST' else {}})
 
 
 @require_POST

@@ -3,6 +3,9 @@
 {% block contenido %}
 <h1>Historial de cargas</h1>
 <p class="subtitulo">Quién subió cada archivo, cuándo y con qué resultado.</p>
+{% if por_confirmar and perfil.puede_subir %}
+<div class="mensaje aviso">Hay {{ por_confirmar }} cosa(s) que tus archivos traen y Cuádralo no conoce. <a href="{% url 'revisar' %}">Revisar y confirmar</a></div>
+{% endif %}
 {% if procesando %}
 <div class="mensaje aviso">Procesando archivos… Esta página se actualiza sola. Mientras tanto el informe enseña los datos anteriores.</div>
 {% endif %}

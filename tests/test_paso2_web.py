@@ -86,7 +86,8 @@ def test_director_de_hotel_solo_ve_su_hotel(client, demo):
     assert 'Hotel Gracia' not in html and 'Hotel Born' not in html and 'Total grupo' not in html
 
 
-def test_archivo_con_columna_desconocida_se_rechaza_con_motivo(client, demo, tmp_path):
+def test_archivo_con_columna_desconocida_queda_por_confirmar(client, demo, tmp_path):
+    """Desde el 13 nov una columna nueva no rechaza la carga: queda «Por confirmar» (ver test_paso8_revision)."""
     import openpyxl
     wb = openpyxl.load_workbook(OCTUBRE[0][1])
     wb.active.cell(row=3, column=22, value='Spa')
@@ -95,4 +96,5 @@ def test_archivo_con_columna_desconocida_se_rechaza_con_motivo(client, demo, tmp
     _entrar(client, 'contable.demo', 'clave-contable-123')
     with open(malo, 'rb') as f:
         r = client.post('/subir/', {'tipo': 'operador', 'archivos': [f]}, follow=True)
-    assert 'columnas sin mapear' in r.content.decode()
+    html = r.content.decode()
+    assert 'Por confirmar' in html and 'Cuádralo no conoce' in html

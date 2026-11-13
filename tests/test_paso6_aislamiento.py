@@ -70,7 +70,7 @@ def test_director_de_hotel_no_ve_otro_hotel_en_ninguna_url(client, demo):  # noq
 
 @pytest.mark.parametrize('usuario,clave', [('director.demo', 'clave-director-123')])
 def test_no_hay_acceso_sin_entrar_ni_al_panel_del_equipo(client, demo, usuario, clave):  # noqa: F811
-    for url in ['/', '/detalle/?tipo=facturas', '/apuntes/', '/exportar/informe/', '/cargas/', '/cargas/1/eliminar/']:
+    for url in ['/', '/detalle/?tipo=facturas', '/apuntes/', '/exportar/informe/', '/cargas/', '/cargas/1/eliminar/', '/revisar/']:
         r = client.post(url) if 'eliminar' in url else client.get(url)
         assert r.status_code == 302 and '/entrar/' in r['Location'], url
     _entrar(client, usuario, clave)

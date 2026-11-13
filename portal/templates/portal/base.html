@@ -27,7 +27,8 @@
       <a class="enlace opcional" data-p="operaciones" href="{{ url_inicio }}?p=operaciones">Operaciones<span class="etiqueta">Opcional</span></a>
       <div class="grupo-nav">Datos</div>
       <a class="enlace" href="{% url 'apuntes' %}">Apuntes y proveedores</a>
-      {% if perfil.puede_subir %}<a class="enlace" href="{% url 'subir' %}">Subir archivos</a>{% endif %}
+      {% if perfil.puede_subir %}<a class="enlace" href="{% url 'subir' %}">Subir archivos</a>
+      {% with n=empresa.por_confirmar %}{% if n %}<a class="enlace" href="{% url 'revisar' %}">Revisar y confirmar <span class="globo">{{ n }}</span></a>{% endif %}{% endwith %}{% endif %}
       <a class="enlace" href="{% url 'cargas' %}">Historial de cargas</a>
       <div class="pie-nav">
         <span class="quien">{{ empresa.nombre }}<br>{{ user.username }} · </span>

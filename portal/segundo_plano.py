@@ -81,12 +81,17 @@ def _procesar(empresa_id):
 
 
 def avisar_error(empresa, cargas, mensaje):
-    """Envía el error a n8n (que manda el correo). Sin AVISOS_WEBHOOK_URL no hace nada."""
+    avisar(empresa, cargas, mensaje, evento='carga_con_error')
+
+
+def avisar(empresa, cargas, mensaje, evento):
+    """Envía el aviso a n8n (que manda el correo): carga_con_error o revision_pendiente.
+    Sin AVISOS_WEBHOOK_URL no hace nada."""
     url = getattr(settings, 'AVISOS_WEBHOOK_URL', '')
     if not url:
         return
     datos = {
-        'evento': 'carga_con_error',
+        'evento': evento,
         'empresa': empresa.nombre,
         'mensaje': mensaje,
         'archivos': [{

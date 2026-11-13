@@ -45,13 +45,46 @@ def leer_con_cabecera(archivo, primera_col, sheet_name=0):
     return df.dropna(how='all').reset_index(drop=True), raw
 
 
+IGNORAR = '(ignorar)'
+
+
+def hotel_ids(cfg):
+    """Nombre del hotel en el archivo → Id hotel: los de la hoja hoteles más los confirmados en la web."""
+    ids = dict(zip(cfg['hoteles']['Hotel'], cfg['hoteles']['Id hotel']))
+    ids.update((cfg or {}).get('alias_hotel', {}))
+    return ids
+
+
+def alias_columnas(cfg, tipo):
+    """Columnas renombradas confirmadas en la web para este tipo de archivo: {columna del archivo: columna esperada}."""
+    return dict(((cfg or {}).get('alias_columnas') or {}).get(tipo, {}))
+
+
+def _aplicar_alias(df, alias):
+    """Renombra las columnas confirmadas y quita las marcadas como «(ignorar)»."""
+    quitar = [c for c, d in alias.items() if d == IGNORAR and c in df.columns]
+    return df.drop(columns=quitar).rename(columns={c: d for c, d in alias.items() if d != IGNORAR})
+
+
+def fila_cabecera(raw, esperadas, minimo=3):
+    """Fila (de las 30 primeras) que más nombres de columna esperados contiene, o None si ninguna llega al mínimo."""
+    esperadas = set(esperadas)
+    mejor, aciertos = None, 0
+    for i in range(min(30, len(raw))):
+        n = len(esperadas & set(raw.iloc[i].astype(str).str.strip()))
+        if n > aciertos:
+            mejor, aciertos = i, n
+    return mejor if aciertos >= minimo else None
+
+
 def normalizar_operador(archivos, cfg):
-    hoteles = cfg['hoteles']
     conceptos = cfg['conceptos_pms']
-    nombre2id = dict(zip(hoteles['Hotel'], hoteles['Id hotel']))
+    nombre2id = hotel_ids(cfg)
+    alias = alias_columnas(cfg, 'operador')
     filas = []
     for i, archivo in enumerate(archivos):
         df, raw = leer_con_cabecera(archivo, 'Hotel')
+        df = _aplicar_alias(df, alias)
         titulo = str(raw.iloc[0, 0]).lower()
         mes = next((v for k, v in MESES_LARGOS.items() if k in titulo), None)
         anio = re.search(r'(20\d\d)', titulo)
@@ -83,16 +116,23 @@ COLUMNAS_BC = ['Nº mov.', 'Fecha registro', 'Fecha documento', 'Nº documento',
                'Cód. dimensión 2 (CECO)', 'Cód. EFE']
 
 
-def normalizar_bc(archivos):
+def normalizar_bc(archivos, cfg=None):
     """Movimientos de Business Central → mov_contabilidad.
 
     Columna «Archivo»: posición del archivo en la lista (sirve para avisar de meses repetidos).
     Un mismo movimiento (mismo «Nº mov.», que en Business Central es único) que llega en varios archivos se cuenta
     una sola vez: manda el del archivo más reciente (el último de la lista). Las columnas de más se ignoran.
     """
+    alias = alias_columnas(cfg, 'business_central')
     partes = []
     for i, a in enumerate(archivos):
-        df = leer_con_cabecera(a, 'Nº mov.')[0]
+        raw = pd.read_excel(a, header=None, engine=MOTOR_EXCEL)
+        fila = fila_cabecera(raw, set(COLUMNAS_BC) | set(alias))
+        if fila is None:
+            raise ErrorDeCarga(f'{_nombre(a)}: no encuentro la fila de cabeceras del export de Business Central.')
+        df = raw.iloc[fila + 1:].copy()
+        df.columns = [str(c).strip() for c in raw.iloc[fila].tolist()]
+        df = _aplicar_alias(df.dropna(how='all').reset_index(drop=True), alias)
         faltan = [c for c in COLUMNAS_BC if c not in df.columns]
         if faltan:
             raise ErrorDeCarga(f'{_nombre(a)}: al export de Business Central le faltan las columnas {faltan}. '
@@ -105,6 +145,11 @@ def normalizar_bc(archivos):
     cobertura = pd.DataFrame({'mes': pd.to_datetime(bc['Fecha registro']).dt.to_period('M'),
                               'hotel': bc['Cód. dimensión 1 (FINCA)'], 'archivo': bc['Archivo']}).drop_duplicates()
     bc = bc.drop_duplicates(subset='Nº mov.', keep='last').reset_index(drop=True)
+    if cfg is not None and cfg.get('alias_finca'):
+        # Fincas confirmadas en la web: se guardan con la finca de la hoja hoteles
+        id2finca = dict(zip(cfg['hoteles']['Id hotel'], cfg['hoteles']['Finca']))
+        cambio = {f: id2finca[h] for f, h in cfg['alias_finca'].items() if h in id2finca}
+        bc['Cód. dimensión 1 (FINCA)'] = bc['Cód. dimensión 1 (FINCA)'].replace(cambio)
     cuenta = bc['Nº cuenta'].astype(str)
     signo = cuenta.str.startswith('7').map({True: -1, False: 1})  # BC: ingresos en negativo (haber)
     imp = pd.to_numeric(bc['Importe']) * signo
@@ -127,16 +172,29 @@ def normalizar_bc(archivos):
     return out
 
 
+def anio_presupuesto(nombre, cfg):
+    """Año del presupuesto: el confirmado en la web para ese archivo o, si no, el que lleva el nombre."""
+    confirmado = (cfg or {}).get('anio_archivo', {}).get(nombre)
+    if confirmado:
+        return int(confirmado)
+    anio = re.search(r'(20\d\d)', nombre)
+    return int(anio.group(1)) if anio else None
+
+
 def normalizar_presupuesto(archivos, cfg):
-    nombre2id = dict(zip(cfg['hoteles']['Hotel'], cfg['hoteles']['Id hotel']))
+    # Cada hoja es un hotel (por su nombre). Las hojas confirmadas en la web pueden ir a otro hotel o ignorarse.
+    nombre2id = {**hotel_ids(cfg), **(cfg or {}).get('alias_hoja', {})}
     filas = []
     for i, archivo in enumerate(archivos):
-        anio = re.search(r'(20\d\d)', _nombre(archivo))
+        anio = anio_presupuesto(_nombre(archivo), cfg)
         if anio is None:
             raise ErrorDeCarga(f'{_nombre(archivo)}: el nombre del archivo debe llevar el año (Presupuesto_2026.xlsx).')
-        anio = int(anio.group(1))
         hojas = pd.ExcelFile(archivo, engine=MOTOR_EXCEL).sheet_names
         for hoja in hojas:
+            if nombre2id.get(hoja) == IGNORAR:
+                continue
+            if hoja not in nombre2id:
+                raise ErrorDeCarga(f'{_nombre(archivo)}: la hoja «{hoja}» no corresponde a ningún hotel.')
             if hasattr(archivo, 'seek'):
                 archivo.seek(0)
             df, _ = leer_con_cabecera(archivo, 'Bloque', sheet_name=hoja)
@@ -173,8 +231,10 @@ def normalizar_reservas(archivos, cfg):
     if not archivos:
         return pd.DataFrame()
     mapa = dict(zip(cfg['columnas_reservas']['Columna de Mews'], cfg['columnas_reservas']['Campo']))
+    mapa.update(alias_columnas(cfg, 'reservas'))
+    mapa = {c: d for c, d in mapa.items() if d != IGNORAR}
     canales = cfg['canales'].set_index('Valor en Mews')
-    nombre2id = dict(zip(cfg['hoteles']['Hotel'], cfg['hoteles']['Id hotel']))
+    nombre2id = hotel_ids(cfg)
     partes = []
     for archivo in archivos:
         df = pd.read_excel(archivo, engine=MOTOR_EXCEL).rename(columns=mapa)
